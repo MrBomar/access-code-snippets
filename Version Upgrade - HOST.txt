@@ -1,0 +1,29 @@
+
+Private Sub Form_Open(Cancel As Integer)
+On Error GoTo Err_Open
+Dim rs As DAO.Recordset
+Set rs = CurrentDb.OpenRecordset("SELECT tblClientUpgradeLog.* FROM tblClientUpgradeLog WHERE (([txtWindowsID] = '" & Environ("UserName") & "') AND (IsNull([txtNewVersion]))")
+
+If rs.RecordCount = 0 Then
+    MsgBox "You can only launch the upgrade client from within the Driver Performance Module.", vbOKOnly, "Nope"
+Else
+    Dim strSource As String: strSource = "R:\Logistics\Transportation\1365\Driver Performance\Driver Performance Module.mdb"
+    
+    'Copy the file
+    FileCopy strSource, rs!txtUserPath
+    
+    'Update the upgrade log
+    rs.Edit
+    rs!txtNewVersion = NewVersion = DFirst("[txtVersionNumber]", "[tblClientCurrentVersion]")
+    rs.Update
+
+    'Open the upgraded client
+    Shell "MSAccess.exe " & """" & rs!txtUserPath & """"
+
+End If
+
+Err_Open:
+    rs.Close
+    Set rs = Nothing
+    DoCmd.Quit
+End Sub

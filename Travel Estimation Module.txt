@@ -1,0 +1,151 @@
+Option Compare Database
+
+Public Function RouteTimeAndDistance(OrigAddress As String, DestAddress As String, ByRef StatusOK As Boolean) As Variant
+'This function will build a URL string to submit to Google Maps
+'The function will then submit the string and retrieve a XML file.
+'Then the function will parse the file for the Distance and Duration of the route.
+Dim strGURL, strDistance, strRetDistance, strDuration, strRetDuration, strResult As String
+Dim varDuration, varDistance As Variant
+Dim i As Long
+
+'Insert "+" symbols where " " exsists. This should be all the formatting needed.
+OrigAddress = GoogleFormat(OrigAddress): Debug.Print OrigAddress
+DestAddress = GoogleFormat(DestAddress): Debug.Print DestAddress
+
+'Build the URL
+strGURL = "https://maps.googleapis.com/maps/api/distancematrix/xml?units=imperial&origins=" & OrigAddress & "&destinations=" & DestAddress & "&key=AIzaSyDiJSlaXJqXLwdWZxoLmn5YihWf-ZqCe-0"
+
+strRetDistance = "0"
+
+Set objXHTTP = CreateObject("MSXML2.XMLHTTP")
+Set objDom = CreateObject("MSXML2.DOMDocument.6.0")
+ 
+With objXHTTP
+    .Open "GET", strGURL, False
+    .setRequestHeader "Content-Type", "application/x-www-form-URLEncoded"
+    .Send
+End With
+
+objDom.LoadXml objXHTTP.responseText
+Dim strStatus
+Set strStatus = objDom.selectSingleNode("//status")
+Debug.Print strStatus.Text
+
+If strStatus.Text = "OK" Then
+    'Use this block to identify a result where the address could not be found
+    strError = objDom.selectSingleNode("/DistanceMatrixResponse/row/element/status").Text
+    If strError = "NOT_FOUND" Then
+        Call GoogleError(CStr(strError), OrigAddress, DestAddress)
+        StatusOK = False
+    End If
+        
+    'Capture the results from Google
+    strRetDistance = objDom.selectSingleNode("/DistanceMatrixResponse/row/element/distance/text").Text
+    strRetDuration = objDom.selectSingleNode("/DistanceMatrixResponse/row/element/duration/text").Text
+Else
+    strError = objDom.selectSingleNode("//status").Text
+    Call GoogleError(CStr(strError), OrigAddress, DestAddress)
+    StatusOK = False
+    Exit Function
+End If
+
+Set objDom = Nothing
+Set objXHTTP = Nothing
+
+If strRetDuration = Empty Or strRetDistance = Empty Then Exit Function
+
+'The next few lines will format the Duration value to a simple answer of minutes
+    varDuration = Split(strRetDuration, " ") 'Create array with the Duration
+    
+    'Find out how many values in array
+    For Each arr In varDuration
+        i = i + 1
+    Next
+
+    If i = 2 Then 'If there are only two values then Duration did not contain hours
+        strRetDuration = CStr(varDuration(0)) 'Trim the answer to number of minutes only
+    Else
+        strRetDuration = (varDuration(0) * 60) + varDuration(2) 'Conver answer to minutes
+    End If
+
+'The next few lines will format the Distance value to a simple answer of miles
+    varDistance = Split(strRetDistance, " ") 'Create array with the Duration
+    
+    strRetDistance = varDistance(0) 'Send just the numeric value
+    
+
+'Trim Distance and Duration result and return concatenated string
+strResult = Trim(strRetDistance) & "|" & Trim(strRetDuration)
+StatusOK = True
+RouteTimeAndDistance = Split(strResult, "|")
+
+End Function
+
+Public Function RetrieveTravelEstimate(CustA As Long, CustB As Long) As String
+'This function will search and retrieve history travel estimations
+'The idea to to reduce the need to pull data From Google Maps and should help to speed up the YellowPad
+Dim rs As DAO.Recordset
+Set rs = CurrentDb.OpenRecordset("SELECT YellowPadTravelData.* " & _
+                                "FROM YellowPadTravelData " & _
+                                "WHERE (((YellowPadTravelData.CustomerA)=" & CustA & ") AND ((YellowPadTravelData.CustomerB)=" & CustB & ")) " & _
+                                "OR (((YellowPadTravelData.CustomerA)=" & CustB & ") AND ((YellowPadTravelData.CustomerB)=" & CustA & "));")
+If rs.RecordCount = 0 Then
+    Dim PointA As String
+    Dim PointB As String
+    Dim h As String
+    Dim Ans As Variant
+    Dim RTDStatus As Boolean
+    h = "[ShippingAddress] & ""+"" & [ShippingCity] & ""+"" & [ShippingState] & ""+"" & [ShippingZip]"
+    PointA = DLookup(h, "[YellowPadCustomerMaster]", "[ID] = " & CustA)
+    PointB = DLookup(h, "[YellowPadCustomerMaster]", "[ID] = " & CustB)
+    Ans = RouteTimeAndDistance(PointA, PointB, RTDStatus)
+    If RTDStatus = False Then
+        RetrieveTravelEstimate = "0|0"
+        Exit Function
+    End If
+    rs.AddNew
+    rs!CustomerA = CustA
+    rs!CustomerB = CustB
+    rs!Distance = CDbl(Ans(0))
+    rs!Duration = CInt(Ans(1))
+    rs.Update
+    RetrieveTravelEstimate = Ans(0) & "|" & Ans(1)
+Else
+    rs.MoveFirst
+    RetrieveTravelEstimate = Round(rs!Distance, 2) & "|" & rs!Duration
+End If
+
+rs.Close
+Set rs = Nothing
+
+End Function
+
+Public Function GoogleFormat(Address As String) As String
+    GoogleFormat = Replace(Address, " ", "+")
+    GoogleFormat = Replace(GoogleFormat, "&", "AND")
+    GoogleFormat = Replace(GoogleFormat, ",", "")
+End Function
+
+Public Sub GoogleError(ErrCode As String, Origin As String, DESTINATION As String)
+'Function used to handle errors from the google matrix
+'On Error GoTo Err_GoogleError
+Dim strDetail As String
+
+Select Case ErrCode
+    Case "INVALID_REQUEST"
+        strDetail = "Check the addresses provided and verify they are properly formatted."
+    Case "MAX_ELEMENTS_EXCEEDED"
+        strDetail = "The result from request is too large and cannot be returned."
+    Case "OVER_QUERY_LIMIT"
+        strDetail = "Too many requests have been made to Google at this time."
+    Case "REQUEST_DENIED"
+        strDetail = "Service has been denied, please contact system admin."
+    Case "UNKNOWN_ERROR"
+        strDetail = "An unknown error has occured. Try again later."
+    Case "NOT_FOUND"
+        strDetail = "One of the addresses supplied is not valid."
+End Select
+    
+'Call YellowPadError("Google Maps | " & ErrCode & " | " & strDetail)
+
+End Sub

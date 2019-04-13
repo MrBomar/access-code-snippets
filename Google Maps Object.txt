@@ -1,0 +1,102 @@
+Option Compare Database
+
+Private pOrigin As String
+Private pDestination As String
+Private pUrl As String
+Private pError As String
+Private pDistance As Integer
+Private pDuration As Integer
+
+Public Property Get Distance() As Integer
+    Distance = pDistance
+End Property
+
+Public Property Get Duration() As Integer
+    Duration = pDuration
+End Property
+
+Public Function GetData(Origin As String, DESTINATION As String, ErrorLog As Object) As Boolean
+'This function will build a URL string to submit to Google Maps
+'The function will then submit the string and retrieve a XML file.
+'Then the function will parse the file for the Distance and Duration of the route.
+
+'Format the origin and destination address
+pOrigin = URLFormat(Origin)
+pDestination = URLFormat(DESTINATION)
+
+'Build the URL
+pUrl = "https://maps.googleapis.com/maps/api/distancematrix/xml?units=imperial&origins=" & pOrigin & "&destinations=" & pDestination & "&key=AIzaSyDiJSlaXJqXLwdWZxoLmn5YihWf-ZqCe-0"
+
+'Build instance
+Set objXHTTP = CreateObject("MSXML2.XMLHTTP")
+Set objDom = CreateObject("MSXML2.DOMDocument.6.0")
+ 
+'Send request to Google
+With objXHTTP
+    .Open "GET", pUrl, False
+    .setRequestHeader "Content-Type", "application/x-www-form-URLEncoded"
+    .Send
+End With
+
+'Load object and record status
+objDom.LoadXml objXHTTP.responseText
+Set pStatus = objDom.selectSingleNode("//status")
+
+If pStatus.Text = "OK" Then
+    'Use this block to identify a result where the address could not be found
+    pError = objDom.selectSingleNode("/DistanceMatrixResponse/row/element/status").Text
+    If pError = "NOT_FOUND" Then
+        Call ErrorLog(CStr(pError), Origin, DESTINATION) 'EDIT
+        GetData = False
+        Exit Function
+    End If
+        
+    'Capture the results from Google
+    pDistance = FormatDuration(objDom.selectSingleNode("/DistanceMatrixResponse/row/element/distance/text").Text)
+    pDuration = FormatDuration(objDom.selectSingleNode("/DistanceMatrixResponse/row/element/duration/text").Text)
+Else
+    pError = objDom.selectSingleNode("//status").Text
+    Call ErrorLog(CStr(pError), Origin, DESTINATION) 'EDIT
+    GetData = False
+    Exit Function
+End If
+
+'Close object and set to nothing
+Set objDom = Nothing
+Set objXHTTP = Nothing
+
+'Send status
+GetData = True
+
+End Function
+
+Private Function FormatDuration(ByVal Duration As Variant) As Integer
+'The next few lines will format the Duration value to a simple answer of minutes
+    Duration = Split(Duration, " ") 'Create array with the Duration
+    
+    'Find out how many values in array
+    Dim i As Long
+    For Each arr In Duration
+        i = i + 1
+    Next
+
+    If i = 2 Then 'If there are only two values then Duration did not contain hours
+        FormatDuration = CInt(Trim(Duration(0))) 'Trim the answer to number of minutes only
+    Else
+        FormatDuration = CInt(Trim((Duration(0) * 60) + Duration(2))) 'Convert answer to minutes
+    End If
+End Function
+
+Private Function FormatDistance(ByVal Distance As Variant) As Integer
+'The next few lines will format the Distance value to a simple answer of miles
+    Distance = Split(Distance, " ") 'Create array with the Duration
+    
+    FormatDistance = CInt(Trim(Distance(0))) 'Send just the numeric value
+End Function
+
+Private Function URLFormat(Address As String) As String
+'Formats the address string so that it complies with Google standards
+    URLFormat = Replace(Address, " ", "+")
+    URLFormat = Replace(URLFormat, "&", "AND")
+    URLFormat = Replace(URLFormat, ",", "")
+End Function

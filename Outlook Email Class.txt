@@ -1,0 +1,97 @@
+Option Compare Database
+
+Public Function ContactList(ByVal strRptNm As String) As Collection
+Dim intCur, intLst As Integer
+Dim rs As Recordset
+Dim var As Collection
+Dim strCC, StrTo As String
+Set var = New Collection
+Set rs = CurrentDb.OpenRecordset("SELECT tblEmailListing" & Loc2 & ".addr, tblEmailListing" & Loc2 & ".to, tblEmailListing" & Loc2 & ".cc FROM tblEmailListing" & Loc2 & " WHERE tblEmailListing" & Loc2 & ".rpt_name = '" & strRptNm & "';")
+    With rs
+        .MoveLast
+        .MoveFirst
+        intLst = .RecordCount
+        intCur = 0
+        Do Until intCur = intLst
+            intCur = intCur + 1
+            If !To = True Then StrTo = StrTo & !addr & "; "
+            If !cc = True Then strCC = strCC & !addr & "; "
+            .MoveNext
+        Loop
+        .Close
+    End With
+    Set rs = Nothing
+    If Len(StrTo) <> 0 Then StrTo = Left(StrTo, Len(StrTo) - 1)
+    If Len(strCC) <> 0 Then strCC = Left(strCC, Len(strCC) - 1)
+    var.Add StrTo
+    var.Add strCC
+    Set ContactList = var
+End Function
+
+Public Function BuildHTMLTable(ByVal strData As String) As String
+    Dim strStyle, strHeader, strRows As String
+    
+    Dim rs As DAO.Recordset
+    Dim fldColumn As DAO.Field
+    Set rs = CurrentDb.OpenRecordset(strData)
+    strHeader = "<table>"
+    strRows = ""
+    
+    'Build th -or- Header
+    If rs.RecordCount <> 0 Then
+        For Each fldColumn In rs.Fields
+            strHeader = strHeader + "<th>" & fldColumn.Name & "</th>"
+        Next
+        rs.MoveLast
+        rs.MoveFirst
+        Do While Not rs.EOF
+            strRows = strRows + "<tr>"
+            For Each fldColumn In rs.Fields
+                strRows = strRows + "<td>" & fldColumn.Value & "</td>"
+            Next
+            strRows = strRows + "</tr>"
+            rs.MoveNext
+        Loop
+        strRows = strRows + "</table>"
+    Else
+        strHeader = ""
+        strRows = ""
+    End If
+    
+    BuildHTMLTable = strHeader & strRows
+    
+    rs.Close
+    Set rs = Nothing
+End Function
+Public Function BuildHTMLTableNoHead(ByVal strData As String) As String
+    Dim strStyle, strHeader, strRows As String
+    
+    Dim rs As DAO.Recordset
+    Dim fldColumn As DAO.Field
+    Set rs = CurrentDb.OpenRecordset(strData)
+    strHeader = "<table class=""non"">"
+    strRows = ""
+    
+    'Build th -or- Header
+    If rs.RecordCount <> 0 Then
+        rs.MoveLast
+        rs.MoveFirst
+        Do While Not rs.EOF
+            strRows = strRows + "<tr>"
+            For Each fldColumn In rs.Fields
+                strRows = strRows + "<td>" & fldColumn.Value & "</td>"
+            Next
+            strRows = strRows + "</tr>"
+            rs.MoveNext
+        Loop
+        strRows = strRows + "</table>"
+    Else
+        strHeader = ""
+        strRows = ""
+    End If
+    
+    BuildHTMLTableNoHead = strHeader & strRows
+    
+    rs.Close
+    Set rs = Nothing
+End Function

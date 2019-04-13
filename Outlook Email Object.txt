@@ -1,0 +1,231 @@
+Option Compare Database
+
+Private pSubject As String
+Private pTo As Collection
+Private pFrom As String
+Private pCC As Collection
+Private pBCC As Collection
+Private pBody As Collection
+Private pSignature As String
+Private ynHTML As Boolean
+Private ynSignature As Boolean
+Private ynPreview As Boolean
+
+Public Property Let HTMLFormat(TrueFalse As Boolean)
+    ynHTML = TrueFalse
+End Property
+
+Public Property Get HTMLFormat() As Boolean
+    HTML = ynHTML
+End Property
+
+Public Property Let SignatureInclude(TrueFalse As Boolean)
+    ynSignature = TrueFalse
+End Property
+
+Public Property Let Preview(TrueFalse As Boolean)
+    ynPreview = TrueFalse
+End Property
+
+Public Property Let SetSubject(Subject As String)
+    pSubject = Subject
+End Property
+
+Public Property Get GetSubject() As String
+    Subject = pSubject
+End Property
+
+Public Property Let SetFrom(Contact As String)
+    pFrom = Contact
+End Property
+
+Public Property Get GetFrom() As String
+    From = pFrom
+End Property
+
+Public Property Let AddToSingle(Contact As String)
+    If IsNull(Contact) Or Contact = "" Then
+    Else
+        pTo.Add Contact
+    End If
+End Property
+
+Public Sub AddToMultiple(ContactTable As String, ContactColumn As String)
+    Dim rs As DAO.Recordset
+    Set rs = CurrentDb.OpenRecordset(ContactTable)
+    
+    Do Until rs.EOF
+        If IsNull(rs.Fields(ContactColumn).Value) Or rs.Fields(ContactColumn).Value = "" Then
+        Else
+            pTo.Add rs.Fields(ContactColumn).Value
+        End If
+        rs.MoveNext
+    Loop
+    
+    rs.Close
+    Set rs = Nothing
+End Sub
+
+Public Property Let AddCCSingle(Contact As String)
+    If IsNull(Contact) Or Contact = "" Then
+    Else
+        pCC.Add Contact
+    End If
+End Property
+
+Public Sub AddCCMultiple(ContactTable As String, ContactColumn As String)
+    Dim rs As DAO.Recordset
+    Set rs = CurrentDb.OpenRecordset(ContactTable)
+    
+    Do Until rs.EOF
+        If IsNull(rs.Fields(ContactColumn).Value) Or rs.Fields(ContactColumn).Value = "" Then
+        Else
+            pCC.Add rs.Fields(ContactColumn).Value
+        End If
+        rs.MoveNext
+    Loop
+    
+    rs.Close
+    Set rs = Nothing
+End Sub
+
+Public Property Let AddBCCSingle(Contact As String)
+    If IsNull(Contact) Or Contact = "" Then
+    Else
+        pBCC.Add Contact
+    End If
+End Property
+
+Public Sub AddBCCMultiple(ContactTable As String, ContactColumn As String)
+    Dim rs As DAO.Recordset
+    Set rs = CurrentDb.OpenRecordset(ContactTable)
+    
+    Do Until rs.EOF
+        If IsNull(rs.Fields(ContactColumn).Value) Or rs.Fields(ContactColumn).Value = "" Then
+        Else
+            pBCC.Add rs.Fields(ContactColumn).Value
+        End If
+        rs.MoveNext
+    Loop
+    
+    rs.Close
+    Set rs = Nothing
+End Sub
+
+Public Property Let AddBodyElement(BodyElement As String)
+    If IsNull(BodyElement) Or BodyElement = "" Then
+    Else
+        pBody.Add BodyElement
+    End If
+End Property
+
+Public Sub QuickSettings(Subject As String, From As String, Signature As Boolean, HTML As Boolean)
+    pSubject = Subject
+    pFrom = From
+    ynSignature = Signature
+    ynHTML = HTML
+End Sub
+
+Public Sub QuickSend(Subject As String, From As String, SendTo As String, CC As String, BCC As String, Body As String, HTML As Boolean, Preview As Boolean, Signature As Boolean)
+    ynHTML = HTML
+    ynPreview = Preview
+    ynSignature = Signature
+    AddToSingle = SendTo
+    AddCCSingle = CC
+    AddBCCSingle = BCC
+    AddBodyElement = Body
+    SetSubject = Subject
+    SetFrom = From
+    Call Send
+End Sub
+
+Public Function Send() As Boolean
+    'Must verify all required data before building email
+    If IsNull(pFrom) Or pBody.Count = 0 Or IsNull(pSubject) Or pTo.Count = 0 Then
+        Send = False
+        Exit Function
+    End If
+    
+    'Build the To list
+    Dim strTo As String: strTo = ""
+    For Each itm In pTo
+        strTo = itm & ";" & strTo
+    Next
+    
+    'Build the CC list
+    Dim strCC As String: strCC = ""
+    If pCC.Count > 0 Then
+        For Each itm In pCC
+            strCC = strCC & "; " & itm
+        Next
+    End If
+    
+    'Build the BCC list
+    Dim strBCC As String: strBCC = ""
+    If pBCC.Count > 0 Then
+        For Each itm In pBCC
+            strBCC = strBCC & "; " & itm
+        Next
+    End If
+    
+    'Build the Body
+    Dim strBody As String: strBody = ""
+    For Each itm In pBody
+        strBody = strBody & itm
+    Next
+    
+    'Start building the email
+    Dim olApp As Object
+    Dim objMail As Object
+    On Error Resume Next
+    
+    'Set the object as if Outlook is open
+    Set olApp = GetObject(, "Outlook.Application")
+    
+    'Set the object if Outlook wasn't open
+    If Err Then Set olApp = CreateObject("Outlook.Application")
+    
+    'Create the email instance
+    Set objMail = olApp.CreateItem(olMailItem)
+    
+    'Set the email values
+    With objMail
+        .Display 'Display the email first so that we can capture and preserve the signature using .HTMLBody
+        If ynHTML = False Then
+            .BodyFormat = 1 'Plain Text
+            .Body = strBody
+        Else
+            If ynSignature = True Then
+                .HTMLBody = strBody & .HTMLBody
+            Else
+                .HTMLBody = strBody
+            End If
+        End If
+        .From = pFrom
+        .to = strTo
+        .Subject = pSubject
+        If Len(strCC) > 0 Then .CC = strCC
+        If Len(strBCC) > 0 Then .BCC = strBCC
+        
+        'Send completed email
+        If ynPreview = True Then
+            .Preview
+        Else
+            .Send
+        End If
+    End With
+    
+    'Close the object
+    Set objMail = Nothing
+    
+    'Send successfull
+    Send = True
+    
+End Function
+
+Private Sub Class_Initialize()
+    Set pTo = New Collection
+    Set pCC = New Collection
+    Set pBCC = New Collection
+    Set pBody = New Collection
+End Sub

@@ -1,0 +1,121 @@
+Option Compare Database
+
+Public Sub ErrorLog(ByVal CurrentDate As Date, ByVal TableName As String, ByVal FieldName As String, ByVal ProcessAttempted As String, ByVal Comment As String)
+'This will act as an error log for the YellowPad, but can be adapted to use for other uses.
+
+DoCmd.RunSQL "INSERT INTO ErrorLog ( CurrentDate, TableName, FieldName, ProcessAttempted, Comment ) " & _
+            "SELECT #" & CurrentDate & "# AS Expr1, '" & TableName & "' AS Expr2, '" & FieldName & "' AS Expr3, '" & ProcessAttempted & "' AS Expr4, '" & Comment & "' AS Expr5;"
+
+End Sub
+
+Public Function FileExists(strPath As String, AutoKill As Boolean) As Boolean
+    If Dir(strPath) = "" Then
+        FileExists = False
+    Else
+        If AutoKill = True Then
+            Kill strPath
+            FileExists = False
+        ElseIf MsgBox("The file '" & strPath & "' already exsists." & Chr(13) & "Would you like to delete it?", vbYesNo + vbCritical, "Delete?") = vbYes Then
+            Kill strPath
+            FileExists = False
+        Else
+            FileExists = True
+        End If
+    End If
+End Function
+
+Public Function NewTextFile(strPath As String, Overwrite As Boolean) As Boolean
+On Error GoTo Err_NewTextFile
+'Creates a new text file using the path specified
+
+    'Verify file does not already exsist
+    If FileExists(strPath, Overwrite) = True Then
+        NewTextFile = False
+        Exit Function
+    End If
+    
+    'Create new text file
+    Dim txtObject As Object
+    Set txtObject = CreateObject("Scripting.FileSystemObject")
+    Dim objFile As Object
+    Set objFile = txtObject.CreateTextFile(strPath)
+    
+    'Close and save the new object
+    objFile.Close
+    
+    'Return true value
+    NewTextFile = True
+    Exit Function
+
+Err_NewTextFile:
+    MsgBox "Cannot create GoogleMapsErrorLog.txt", vbOKOnly, "Error"
+    NewTextFile = False
+
+End Function
+
+Public Function ReadTextFile(strPath As String, ByRef strReturn As String) As Boolean
+On Error GoTo Err_ReadTextFile
+'This function returns the data in a text file.
+Dim strBuild As String
+
+    'Make sure referenced string is empty
+    strReturn = ""
+    
+    'Open the file for reading
+    Open strPath For Input As #1
+    
+    'Loop though each line and add it to the referenced string
+    While EOF(1) = False
+        Line Input #1, strBuild
+        strReturn = strReturn + strBuild
+    Wend
+    
+    'Close the file
+    Close #1
+    
+    'Return true value
+    ReadTextFile = True
+    Exit Function
+
+Err_ReadTextFile:
+    MsgBox "File at " & strPath & " could not be read from.", vbOKOnly, "Error"
+    ReadTextFile = False
+
+End Function
+
+Public Function WriteTextFile(strPath As String, strOutput As String) As Boolean
+On Error GoTo Err_WriteTextFile
+'This function rewrites the data in a text file.
+
+    'Open the file for reading
+    Open strPath For Output As #1
+    
+    'Write the new data
+    Print #1, strOutput
+    
+    'Close and save the file
+    Close #1
+    
+    'Return true value
+    WriteTextFile = True
+    Exit Function
+
+Err_WriteTextFile:
+    MsgBox "File at " & strPath & " cound not be written to.", vbOKOnly, "Error"
+    WriteTextFile = False
+    
+End Function
+
+Public Function FileFormat(ByVal FileName As String) As String
+'Removes special charaters from a string so that it can be used as a file name
+Dim strReplace As String: strReplace = "~`!@#$%^&*()+={}|[] \:"";'<>?,./"
+Dim i As Integer
+
+For i = 1 To Len(strReplace)
+    FileName = Replace(FileName, Mid(strReplace, i, 1), "")
+Next
+
+FileFormat = FileName
+    
+End Function
+

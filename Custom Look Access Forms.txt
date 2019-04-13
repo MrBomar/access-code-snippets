@@ -1,0 +1,197 @@
+Option Compare Database
+Public Loc, Loc2 As String
+
+Public Function FindRecord(ByVal strRecord As String, ByVal strTable As String, ByVal strWHSE As String, ByVal strField As String) As String
+Dim rsLocs, rsRecord As Recordset
+Dim intType As Integer
+intType = CurrentDb.TableDefs(strTable & strWHSE).Fields(strField).Type
+
+If intType = 4 Then
+    If IsNumeric(strRecord) = False Then
+        FindRecord = "FALSE"
+        Exit Function
+    End If
+    If DCount("[" & strField & "]", "[" & strTable & strWHSE & "]", "[" & strField & "] = " & CLng(strRecord)) = 0 Then
+        Set rsLocs = CurrentDb.OpenRecordset("tblClientLocationsLocal")
+        With rsLocs
+        Do Until FindRecord <> "" Or .EOF
+            If DCount("[" & strField & "]", "[" & strTable & !txtLocCode & "]", "[" & strField & "] = " & CLng(strRecord)) <> 0 Then
+                FindRecord = !txtLocCode
+            Else
+                .MoveNext
+            End If
+        Loop
+        End With
+        rsLocs.Close
+        Set rsLocs = Nothing
+        If IsNull(FindRecord) Then FindRecord = "FALSE"
+        If FindRecord = "FALSE" Then MsgBox "Record " & strRecord & " was not found.", vbInformation, "Not Found"
+    Else
+        FindRecord = strWHSE
+    End If
+Else
+    If DCount("[" & strField & "]", "[" & strTable & strWHSE & "]", "[" & strField & "] = '" & strRecord & "'") = 0 Then
+        Set rsRecord = CurrentDb.OpenRecordset("tblClientLocationsLocal")
+        rsRecord.MoveLast
+        rsRecord.MoveFirst
+        Do Until FindRecord <> "" Or rsRecord.EOF
+            If DCount("[" & strField & "]", "[" & strTable & rsRecord!txtLocCode & "]", "[" & strField & "] = '" & strRecord & "'") = 0 Then
+                rsRecord.MoveNext
+            Else
+                FindRecord = rsRecord!txtLocCode
+            End If
+        Loop
+        rsRecord.Close
+        Set rsRecord = Nothing
+        If FindRecord = "" Then
+            FindRecord = "FALSE"
+            MsgBox "Record " & strRecord & " was not found.", vbInformation, "Not Found"
+        End If
+    Else
+        FindRecord = strWHSE
+    End If
+End If
+End Function
+
+Public Function ChangeButtons(ByVal intT As Integer, ByVal strForm As String, ByVal intMax As Integer)
+On Error Resume Next
+Dim i As Integer
+    i = 1
+    Do Until i = intMax
+        If i <> intT Then
+            If Forms(strForm).Controls("btn" & i).ForeColor = vbWhite Then Forms(strForm).Controls("btn" & i).ForeColor = vbBlack
+        End If
+        i = i + 1
+    Loop
+    If intT = 99 Then Exit Function
+    If Forms(strForm).Controls("btn" & intT).ForeColor = vbBlack Then Forms(strForm).Controls("btn" & intT).ForeColor = vbWhite
+End Function
+
+Public Function ChangeTabs(ByVal intT As Integer, ByVal strPage As String, ByVal strForm As String, ByVal intMax As Integer)
+Dim i As Integer
+    i = 1
+    Do Until i = (intMax + 1)
+        Forms(strForm).Controls("tab" & i).ForeColor = vbWhite
+        Forms(strForm).Controls("tab" & i).BackColor = vbBlack
+        Forms(strForm).Controls("tab" & i).BorderColor = vbBlack
+        i = i + 1
+    Loop
+    With Forms(strForm).Controls("tab" & intT)
+        .ForeColor = vbBlack
+        .BackColor = vbWhite
+        .BorderColor = vbWhite
+    End With
+    Forms(strForm).tabPages.Pages.Item(strPage).SetFocus
+End Function
+
+Public Sub ChangeSort(ByVal intMe As Integer, ByVal strSort As String, ByVal strForm As String, ByVal intMax As Integer)
+Dim i As Integer
+i = 1
+    Do Until i = (intMax + 1)
+    If intMe <> i Then
+        If Forms(strForm).Controls("Label" & i).BackColor = RGB(192, 192, 192) Then Forms(strForm).Controls("Label" & i).BackColor = vbBlack
+        If Forms(strForm).Controls("Label" & i).ForeColor = vbBlack Then Forms(strForm).Controls("Label" & i).ForeColor = vbWhite
+        If Forms(strForm).Controls("Label" & i).BorderColor = RGB(192, 192, 192) Then Forms(strForm).Controls("Label" & i).BorderColor = vbBlack
+        If Forms(strForm).Controls("Label" & i).Tag <> "0" Then Forms(strForm).Controls("Label" & i).Caption = Left(Forms(strForm).Controls("Label" & i).Caption, Len(Forms(strForm).Controls("Label" & i).Caption) - 2)
+        Forms(strForm).Controls("Label" & i).Tag = "0"
+    End If
+    i = i + 1
+    Loop
+    If Forms(strForm).Controls("Label" & intMe).Tag = "0" Or Forms(strForm).Controls("Label" & intMe).Tag = "" Then
+        Forms(strForm).OrderBy = "[" & strSort & "]"
+        Forms(strForm).Controls("Label" & intMe).Tag = "1"
+        Forms(strForm).Controls("Label" & intMe).BackColor = RGB(192, 192, 192)
+        Forms(strForm).Controls("Label" & intMe).ForeColor = vbBlack
+        Forms(strForm).Controls("Label" & intMe).BorderColor = RGB(192, 192, 192)
+        Forms(strForm).Controls("Label" & intMe).Caption = Forms(strForm).Controls("Label" & intMe).Caption & " " & ChrW(9660)
+    ElseIf Forms(strForm).Controls("Label" & intMe).Tag = "1" Then
+        Forms(strForm).OrderBy = "[" & strSort & "] DESC"
+        Forms(strForm).Controls("Label" & intMe).Tag = "2"
+        Forms(strForm).Controls("Label" & intMe).Caption = Left(Forms(strForm).Controls("Label" & intMe).Caption, Len(Forms(strForm).Controls("Label" & intMe).Caption) - 2)
+        Forms(strForm).Controls("Label" & intMe).Caption = Forms(strForm).Controls("Label" & intMe).Caption & " " & ChrW(9650)
+    ElseIf Forms(strForm).Controls("Label" & intMe).Tag = "2" Then
+        Forms(strForm).OrderBy = ""
+        Forms(strForm).Controls("Label" & intMe).Tag = "0"
+        Forms(strForm).Controls("Label" & intMe).BackColor = vbBlack
+        Forms(strForm).Controls("Label" & intMe).ForeColor = vbWhite
+        Forms(strForm).Controls("Label" & intMe).BorderColor = vbBlack
+        Forms(strForm).Controls("Label" & intMe).Caption = Left(Forms(strForm).Controls("Label" & intMe).Caption, Len(Forms(strForm).Controls("Label" & intMe).Caption) - 2)
+    End If
+    Forms(strForm).OrderByOn = True
+End Sub
+
+Public Sub ChangeSortSub(ByVal intMe As Integer, ByVal strSort As String, ByVal strForm As String, ByVal intMax As Integer, ByVal strSubCntr As String)
+Dim i As Integer
+i = 1
+    Do Until i = (intMax + 1)
+    If intMe <> i Then
+        If Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).BackColor = RGB(192, 192, 192) Then Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).BackColor = vbBlack
+        If Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).BorderColor = RGB(192, 192, 192) Then Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).BorderColor = vbBlack
+        If Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).ForeColor = vbBlack Then Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).ForeColor = vbWhite
+        If Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).Tag <> "0" Then Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).Caption = Left(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).Caption, Len(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).Caption) - 2)
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & i).Tag = "0"
+    End If
+    i = i + 1
+    Loop
+    If Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "0" Or Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "" Then
+        Forms(strForm).Controls(strSubCntr).Form.OrderBy = "[" & strSort & "]"
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "1"
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).BackColor = RGB(192, 192, 192)
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).BorderColor = RGB(192, 192, 192)
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).ForeColor = vbBlack
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption = Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption & " " & ChrW(9660)
+    ElseIf Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "1" Then
+        Forms(strForm).Controls(strSubCntr).Form.OrderBy = "[" & strSort & "] DESC"
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "2"
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption = Left(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption, Len(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption) - 2)
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption = Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption & " " & ChrW(9650)
+    ElseIf Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "2" Then
+        Forms(strForm).Controls(strSubCntr).Form.OrderBy = ""
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Tag = "0"
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).BackColor = vbBlack
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).BorderColor = vbBlack
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).ForeColor = vbWhite
+        Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption = Left(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption, Len(Forms(strForm).Controls(strSubCntr).Form.Controls("Label" & intMe).Caption) - 2)
+    End If
+    Forms(strForm).Controls(strSubCntr).Form.OrderByOn = True
+End Sub
+
+Public Function LoggedIn() As Integer
+    If CurrentProject.AllForms("frmOpeningSplash").IsLoaded = True Then
+        If IsNull(Forms![frmOpeningSplash]![UserLocation]) = False Then
+            LoggedIn = True
+            Loc2 = DLookup("[txtLocCode]", "[tblClientLocationsLocal]", "[txtLocationName] = '" & Forms!frmOpeningSplash!UserLocation & "'")
+            Loc = DLookup("[txtLoc2nd]", "[tblClientLocationsLocal]", "[txtLocationName] = '" & Forms!frmOpeningSplash!UserLocation & "'")
+            Exit Function
+        End If
+    End If
+    LoggedIn = False
+    MsgBox "You must log in", vbOKOnly
+    Call LogOut
+End Function
+
+Function LogOut()
+On Error Resume Next
+    Do While Forms.Count > 0
+        DoCmd.Close acForm, Forms(0).Name
+    Loop
+    Do While Reports.Count > 0
+        DoCmd.Close acReport, Reports(0).Name
+    Loop
+    DoCmd.OpenForm "frmOpeningSplash", acNormal
+    
+End Function
+
+Public Function ChangeLinks(ByVal intT As Integer, ByVal strForm As String, ByVal intMax As Integer)
+On Error Resume Next
+Dim i As Integer
+    i = 1
+    Do Until i = (intMax + 1)
+        If i <> intT Then
+            If Forms(strForm).Controls("lnk" & i).ForeColor = vbBlue Then Forms(strForm).Controls("lnk" & i).ForeColor = vbBlack
+        End If
+        i = i + 1
+    Loop
+    If intT = 99 Then Exit Function
+    If Forms(strForm).Controls("lnk" & intT).ForeColor = vbBlack Then Forms(strForm).Controls("lnk" & intT).ForeColor = vbBlue
+End Function

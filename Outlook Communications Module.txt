@@ -1,0 +1,243 @@
+
+Public Function OutlookText(Subject As String, message As String, Recipient As String) As Boolean
+'This function sends a text only message through Outlook.
+'For multiple recipients use the "SendGroupText" function.
+
+On Error GoTo Err_SendText
+Dim olApp As Object
+Dim objMail As Object
+
+    On Error Resume Next 'Keep going if there is an error
+    Set olApp = GetObject(, "Outlook.Application") 'See if Outlook is open
+
+    If Err Then 'Outlook is not open
+       Set olApp = CreateObject("Outlook.Application") 'Create a new instance
+    End If
+
+    'Create e-mail item
+    Set objMail = olApp.CreateItem(olMailItem)
+    With objMail
+        .BodyFormat = 1 'Plain Text
+        .to = Recipient
+        .Subject = Subject
+        .Body = message
+        .Send 'Change to "Display" to preview the email before sending, or "send" to send immediatly.
+    End With
+    Set objMail = Nothing
+    Set olApp = Nothing
+
+OutlookText = True 'True if there were no errors
+Exit Function
+    
+Err_SendText:
+    OutlookText = False 'False is there were any errors.
+    
+End Function
+
+Public Function SendGroupText(Subject As String, message As String, Group As Long) As Boolean
+'This function loops though a list of users who belong to a distribution list.
+'A single text message is generated for each user using the "SendText" function
+On Error GoTo err_SendGroupText
+
+Dim rsDist As DAO.Recordset 'Opening a query that has been limited to users specified by the DistList
+Set rsDist = CurrentDb.OpenRecordset("SELECT Users.UserText, DistList.Report FROM DistList LEFT JOIN Users ON DistList.User=Users.id WHERE (((DistList.Report) = " & Group & "));")
+rsDist.MoveLast: rsDist.MoveFirst 'I have read that some early versions of access get record counts wrong if you don't do this.
+
+Do Until rsDist.EOF
+    SendGroupText = SendText(Subject, message, rsDist!UserText) 'Error message handling pass down.
+    If SendGroupText = False Then Exit Do 'Exit on error
+    rsDist.MoveNext 'Move to next recipient
+Loop
+
+rsDist.Close
+Set rsDist = Nothing
+
+Exit Function
+
+err_SendGroupText:
+    SendGroupText = False 'On error send "False"
+
+End Function
+
+Public Function SendText(Subject As String, message As String, Recipient As String) As Boolean
+'This function verifies the length of the message and breaks it into messages not longer
+'than 160 characters. This function keeps the subject heading with every message.
+'This function keeps each word whole to improve readability.
+On Error GoTo Err_SendText
+
+Dim intActualSubjectLength As Integer: intActualSubjectLength = Len(Subject) + 11 'Includes formatting characters from Outlook
+Dim intMessageLength As Integer: intMessageLength = Len(message) 'The length of the body of the message
+
+If (intActualSubjectLength + intMessageLength) <= 160 Then 'If total message length is less than or equal to 160 charaters, then
+    SendText = OutlookText(Subject, message, Recipient) 'Send the message
+Else 'If total message length is greater than 160 charaters then we will break up the message and send it one block at a time
+    Dim intNewMessageLength As Integer: intNewMessageLength = 160 - intActualSubjectLength 'Set the character limit for the body of each message
+    Dim varWordArray As Variant: varWordArray = Split(message, " ") 'Split the string into an Array
+        
+    'This will be accomplished by using a loop within a loop
+    Dim i As Integer 'Will track every word in the array as it is used
+    Do While i < (UBound(varWordArray) + 1) 'This loop will run until all the words in the array are used.
+        Dim strNew As String: strNew = "" 'We will store the current message here, it will be reset with each inner loop
+        Dim booMsg As Boolean: booMsg = False 'Signals message is ready to send will be reset with each inner loop
+        Do Until booMsg = True Or i > (UBound(varWordArray) + 1) 'This inner loop will run until a maximum length message is generated
+            If i > UBound(varWordArray) Then
+                booMsg = True 'Signals this message is complete
+            ElseIf (Len(strNew) + Len(varWordArray(i)) + 1) <= intNewMessageLength Then 'Verify new length will still be within limits
+                strNew = strNew + varWordArray(i) + " " 'Adds the next word in the array to the string and adds a space
+                i = i + 1 'Increments position in the array
+            Else
+                booMsg = True 'Signals this message is complete
+            End If
+        Loop
+        SendText = OutlookText(Subject, strNew, Recipient)
+    Loop
+End If
+
+Exit Function
+
+Err_SendText:
+    SendText = False
+
+End Function
+
+Public Function YellowPadAssignmentText(DeliveryDate As Date) As Boolean
+'Unlike the function above, this method will open the "Driver" table and send an assignment text to everyone in the Yellow Pad
+'When the field "VText" has been added to the "Driver" table, then substitute "Driver" for every instance of "DriverVText" below
+'I build this function to eliminate the need for a query, just to make the number of changes needed fewer.
+On Error GoTo Err_Assignment
+
+Dim DriverVText As String
+Dim DriverFound As Boolean
+Dim i As Long
+Dim rsDriver As DAO.Recordset: Set rsDriver = CurrentDb.OpenRecordset("DriverVText")
+Dim rsYellowPad As DAO.Recordset: Set rsYellowPad = CurrentDb.OpenRecordset("SELECT * FROM YellowPadRoute " & _
+                                                    "WHERE dtmDeliveryDate = #" & DeliveryDate & "#")
+
+rsYellowPad.MoveLast
+rsYellowPad.MoveFirst
+Do Until rsYellowPad.EOF
+    rsDriver.MoveLast
+    rsDriver.MoveFirst
+    DriverFound = False
+    Do Until rsDriver.EOF Or DriverFound
+        If rsDriver![Driver Number] = rsYellowPad!lngDriverNumber Then
+            DriverFound = True
+            If SendText("Assignment - " & DeliveryDate, "Route: " & rsYellowPad!RouteCode & " On-Duty: " & TimeValue(rsYellowPad!dtmPlannedStartTime) & " Depart by: " & TimeValue(rsYellowPad!dtmPlannedWHSEDeparture), rsDriver!VText) = False Then
+                MsgBox "Route " & rsYellowPad!RouteCode & " assignment was not sent.", vbOKOnly, "Unable to Send"
+            End If
+        Else
+            rsDriver.MoveNext
+        End If
+    Loop
+    rsYellowPad.MoveNext
+Loop
+
+YellowPadAssignmentText = True
+
+Finished:
+    rsYellowPad.Close
+    rsDriver.Close
+    Set rsYellowPad = Nothing
+    Set rsDriver = Nothing
+    Exit Function
+    
+Err_Assignment:
+    YellowPadAssignmentText = False
+    GoTo Finished
+
+End Function
+
+Public Function SendTextAllDrivers(Subject As String, message As String) As Boolean
+'Sends text message to all active drivers
+'Need to change out the "DriverVText" to a query filter by active drivers once the "VText" field is added to the driver table
+Dim rs As DAO.Recordset: Set rs = CurrentDb.OpenRecordset("DriverVText")
+rs.MoveLast
+rs.MoveFirst
+Do Until rs.EOF
+    SendTextAllDrivers = SendText(Subject, message, rs!VText)
+    rs.MoveNext
+Loop
+rs.Close
+Set rs = Nothing
+End Function
+
+Public Function SendDriverGroupText(Subject As String, message As String) As Boolean
+'This function loops though the driver list.
+'A single text message is generated for each driver using the "SendText" function
+On Error GoTo err_SendDriverGroupText
+
+Dim rsDist As DAO.Recordset
+Set rsDist = CurrentDb.OpenRecordset("qryYellowPadActiveDrivers") 'Open the list of active Drivers
+rsDist.MoveLast: rsDist.MoveFirst 'I have read that some early versions of access get record counts wrong if you don't do this.
+
+Do Until rsDist.EOF
+    If IsNull(rsDist!VText) Then
+        SendDriverGroupText = True
+    Else
+        SendDriverGroupText = SendText(Subject, message, rsDist!VText) 'Error message pass down
+    End If
+    If SendDriverGroupText = False Then Exit Do 'Exit on error
+    rsDist.MoveNext 'Move to next recipient
+Loop
+
+rsDist.Close
+Set rsDist = Nothing
+
+Exit Function
+
+err_SendDriverGroupText:
+    SendDriverGroupText = False 'On error send "False"
+
+End Function
+
+Public Sub SendEmail(strTo As String, strCC As String, strSubject As String, strBody As String)
+'Function sends email using Microsoft Outlook
+Dim olApp As Object
+Dim objMail As Object
+
+    On Error Resume Next 'Keep going if there is an error
+    Set olApp = GetObject(, "Outlook.Application") 'See if Outlook is open
+
+    If Err Then 'Outlook is not open
+       Set olApp = CreateObject("Outlook.Application") 'Create a new instance
+    End If
+
+    'Create e-mail item
+    Set objMail = olApp.CreateItem(olMailItem)
+    With objMail
+        .Display 'Diplay the email first so that we can capture and preserve the signature using .HTMLBody
+        .to = strTo
+        .CC = strCC
+        .Subject = strSubject
+        .HTMLBody = strBody & .HTMLBody
+    End With
+    Set objMail = Nothing
+    
+End Sub
+
+Public Function EmailContactList(ReportName As String) As Collection
+'This function builds the contact list stored in the report_email_add table.
+'When calling the function specify the name of the report.
+'Item 1 will populate the TO field and Item 2 will populate the CC field.
+Dim rs As Recordset
+Dim var As Collection
+Dim strCC, strTo As String
+Set var = New Collection
+Set rs = CurrentDb.OpenRecordset("SELECT report_email_addr.addr, report_email_addr.to, report_email_addr.cc FROM report_email_addr WHERE report_email_addr.rpt_name = '" & ReportName & "';")
+    With rs
+        .MoveLast
+        .MoveFirst
+        Do Until rs.EOF
+            If !to = True Then strTo = strTo & !addr & "; "
+            If !CC = True Then strCC = strCC & !addr & "; "
+            .MoveNext
+        Loop
+        .Close
+    End With
+    Set rs = Nothing
+    If Len(strTo) <> 0 Then strTo = Left(strTo, Len(strTo) - 1)
+    If Len(strCC) <> 0 Then strCC = Left(strCC, Len(strCC) - 1)
+    var.Add strTo
+    var.Add strCC
+    Set EmailContactList = var
+End Function

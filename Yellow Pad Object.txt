@@ -1,0 +1,240 @@
+Option Compare Database
+
+Public classStops As DAO.Recordset
+Public classRoutes As DAO.Recordset
+Private classSeq As DAO.Recordset
+Private classDrivers As DAO.Recordset
+Private classMissing As DAO.Recordset
+Private classDate As Date
+Private classStartStop
+
+Public Sub BuildStops()
+    Dim clsRoutes As DAO.Recordset
+    
+    classDate = Forms!frmLaunchYellowPad!txtDate
+    
+    'Build temporary query
+    CurrentDb.CreateQueryDef "qryYellowPadRoutesList", "SELECT YellowPadStops.Route, YellowPadStops.RDD from YellowPadStops GROUP BY YellowPadStops.Route, YellowPadStops.RDD HAVING (((YellowPadStops.RDD) = #" & classDate & "#)) ORDER BY YellowPadStops.Route;"
+
+    'Turn off warnings
+    DoCmd.SetWarnings False
+    
+    'Build delivery and pickup stops
+    DoCmd.OpenQuery "qryYellowPadAddStops"
+    
+    'Update stops with delivery window
+    DoCmd.OpenQuery "qryYellowPadUpdateDelivery"
+    
+    'Update stops with appointment times
+    DoCmd.OpenQuery "qryYellowPadUpdateAppointment"
+    
+    'Set average sequence
+    DoCmd.OpenQuery "qryYellowPadUpdateAvgSequence"
+    
+    'Build beginning stops
+    DoCmd.OpenQuery "qryYellowPadAddFirstStop"
+    
+    'Build ending stops
+    DoCmd.OpenQuery "qryYellowPadAddLastStop"
+    
+    'Correct first stop and last stop sequence
+    DoCmd.OpenQuery "qryYellowPadUpdateStartEndSequencing"
+    
+    'Turn on warnings
+    DoCmd.SetWarnings True
+    
+    'Populate stops data
+    Set classStops = CurrentDb.OpenRecordset("SELECT YellowPadStops.* from YellowPadStops WHERE (((YellowPadStops.RDD) = #" & classDate & "#)) ORDER BY YellowPadStops.Route, YellowPadStops.Sequence;")
+    
+    'Sequence remaining stops
+    Call Sequence
+    
+    'Turn off warnings
+    DoCmd.SetWarnings False
+    
+    'Build routes
+    DoCmd.OpenQuery "qryYellowPadAddRoutes"
+    
+    'Turn on warnings
+    DoCmd.SetWarnings True
+    
+    'Set classRoutes
+    Set classRoutes = CurrentDb.OpenRecordset("SELECT YellowPadRoutes.* FROM YellowPadRoutes WHERE YellowPadRoutes.RDD = #" & classDate & "#")
+    
+    'Add drivers to routes
+    'Call RouteDrivers - function has been added to the qryYellowPadAddRoutes
+        
+    'Add missing routes
+    Call MissingRoutes
+    
+    'Set start date and time
+    Call RouteStart
+    
+    'Estimate time at the stop
+    Call TimeAtCustomer
+    
+    'Turn off warnings
+    DoCmd.SetWarnings False
+    
+    'Update Google travel information
+    DoCmd.OpenQuery "qryYellowPadUpdateGoogleData"
+    
+    'Update first stop arrival
+    DoCmd.OpenQuery "qryYellowPadUpdateFirstStopArrive"
+    
+    'Update first stop departure
+    DoCmd.OpenQuery "qryYellowPadUpdateFirstStopDeparture"
+    
+    'Update remaining arrival departure times
+    Call UpdateArvDep
+    
+    'Turn on warnings
+    DoCmd.SetWarnings True
+    
+    'Close routes
+    classRoutes.Close
+    Set classRoutes = Nothing
+    
+    'Close stops
+    classStops.Close
+    Set classStops = Nothing
+    
+    'Delete temporary query
+    If DCount("Name", "MSysObjects", "Name = 'qryYellowPadRoutesList'") = 1 Then DoCmd.DeleteObject acQuery, "qryYellowPadRoutesList"
+            
+End Sub
+
+Private Sub Sequence()
+    'Resequence based on order
+    With classStops
+        .MoveLast
+        .MoveFirst
+        Dim CurRoute As String: CurRoute = !Route
+        Dim CurSeq As Byte: CurSeq = 1
+        Do Until .EOF
+            If !Route <> CurRoute Then CurSeq = 1
+            .Edit
+            !Sequence = CurSeq
+            .Update
+            CurRoute = !Route
+            CurSeq = CurSeq + 1
+            .MoveNext
+        Loop
+    End With
+End Sub
+
+Private Sub RouteDrivers()
+    'Open active drivers
+    Set classDrivers = CurrentDb.OpenRecordset("SELECT Driver.* FROM Driver WHERE Driver.Active = True").Clone
+    
+    'Add drivers to routes
+    With classRoutes
+        .MoveLast
+        .MoveFirst
+        Do Until .EOF
+            classDrivers.MoveLast
+            classDrivers.MoveFirst
+            Do Until classDrivers.EOF
+                If classDrivers!Default_Route = !Route Then
+                    If IsNull(!DriverNumber) Or !DriverNumber = 0 Then
+                        .Edit
+                        !DriverNumber = classDrivers![Driver Number]
+                        .Update
+                    End If
+                    Exit Do
+                End If
+                classDrivers.MoveNext
+            Loop
+            .MoveNext
+        Loop
+    End With
+    
+    'Close active drivers
+    classDrivers.Close
+    Set classDrivers = Nothing
+End Sub
+
+Private Sub MissingRoutes()
+On Error Resume Next
+    'Load missing routes
+    Set classMissing = CurrentDb.OpenRecordset("SELECT qryYellowPadActiveDrivers.[Driver Number] AS Driver, qryYellowPadActiveDrivers.Default_Route, [ROUTE CODES].[Start Time] FROM (qryYellowPadActiveDrivers LEFT JOIN qryYellowPadRoutesList ON qryYellowPadActiveDrivers.Default_Route = qryYellowPadRoutesList.Route) LEFT JOIN [ROUTE CODES] ON qryYellowPadActiveDrivers.Default_Route = [ROUTE CODES].ROUTE WHERE (((qryYellowPadActiveDrivers.Default_Route) Is Not Null) AND ((qryYellowPadRoutesList.RDD) Is Null));")
+    
+    'Insert missing routes
+    If classMissing.RecordCount > 0 Then
+        With classRoutes
+            Do Until classMissing.EOF
+                .AddNew
+                !Route = classMissing!Default_Route
+                !DriverNumber = classMissing!Driver
+                !StartTime = classMissing![Start Time]
+                !RDD = classDate
+                .Update
+                classMissing.MoveNext
+            Loop
+        End With
+    End If
+    
+    'Close missing routes
+    classMissing.Close
+    Set classMissing = Nothing
+End Sub
+
+Private Sub RouteStart()
+    'Set start date and time
+    With classRoutes
+        .MoveLast
+        .MoveFirst
+        Do Until .EOF
+            .Edit
+            If IsNull(!StartTime) Then
+                !StartTime = SetDate(#12:00:00 AM#, !RDD)
+            Else
+                !StartTime = SetDate(TimeValue(!StartTime), !RDD)
+            End If
+            .Update
+            .MoveNext
+        Loop
+    End With
+End Sub
+
+Private Sub TimeAtCustomer()
+    Dim dblUnload As Double
+    With classStops
+        .MoveLast
+        .MoveFirst
+        Do Until classStops.EOF
+            If !Type = "End" Then
+                dblUnload = 15
+            ElseIf !Type = "Start" Then
+                dblUnload = 30
+            ElseIf IsNull(!SumOfPieces) = False Then
+                If IsNull(!UnloadRate) Then
+                    dblUnload = Nz(!MaximumUnloadTime, 120)
+                Else
+                    dblUnload = !SumOfPieces * !UnloadRate
+                End If
+            Else
+                dblUnload = Nz(!MaximumUnloadTime, 120)
+            End If
+            .Edit
+            If dblUnload > Nz(!MaximumUnloadTime, 120) Then
+                !UnloadTime = CInt(!MaximumUnloadTime)
+            Else
+                !UnloadTime = CInt(dblUnload)
+            End If
+            .Update
+            .MoveNext
+        Loop
+    End With
+End Sub
+
+Private Sub UpdateArvDep()
+'Execute the query times the number of maximum stops on any given route
+Dim myLoop As Integer
+Dim i As Integer: i = 1
+    myLoop = CInt(DMax("[Sequence]", "[YellowPadStops]", "[RDD] = #" & classDate & "#"))
+    Do Until i = myLoop
+        DoCmd.OpenQuery "qryYellowPadUpdateArvDepTimes"
+        i = i + 1
+    Loop
+End Sub

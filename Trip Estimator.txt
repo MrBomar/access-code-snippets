@@ -1,0 +1,134 @@
+Option Compare Database
+
+Public Function ZipDist(ByVal strFrom As String, ByVal StrTo As String) As Double
+Dim dblFromLatRad, dblFromLongRad, dblToLatRad, dblToLongRad, dblEarthRad As Double
+Dim varFromRTN, varToRTN As Variant
+
+If DCount("[strCode]", "[tblZipCodeData]", "[strCode] = '" & strFrom & "'") = 0 Then
+    MsgBox "Starting Zip Code is invalid.", vbCritical + vbOKOnly, "Oops"
+    Exit Function
+End If
+
+If DCount("[strCode]", "[tblZipCodeData]", "[strCode] = '" & StrTo & "'") = 0 Then
+    MsgBox "Ending Zip Code is invalid.", vbCritical + vbOKOnly, "Oops"
+    Exit Function
+End If
+
+varFromRTN = Split(DLookup("[numLatitude] & '|' & [numLongitude]", "[tblZipCodeData]", "[strCode] = '" & strFrom & "'"), "|")
+varToRTN = Split(DLookup("[numLatitude] & '|' & [numLongitude]", "[tblZipCodeData]", "[strCode] = '" & StrTo & "'"), "|")
+
+dblEarthRad = 3956.08710710305
+dblFromLatRad = (CDbl(varFromRTN(0)) / 180) * 3.141592654
+dblFromLongRad = (CDbl(varFromRTN(1)) / 180) * 3.141592654
+dblToLatRad = (CDbl(varToRTN(0)) / 180) * 3.141592654
+dblToLongRad = (CDbl(varToRTN(1)) / 180) * 3.141592654
+
+ZipDist = (dblEarthRad * 2) * Asin(Sqr(Pow(Sin((dblFromLatRad - dblToLatRad) / 2), 2) + Cos(dblFromLatRad) * Cos(dblToLatRad) * Pow(Sin((dblFromLongRad - dblToLongRad) / 2), 2)))
+                                    
+End Function
+
+Public Function CustTime()
+If LoggedIn() = False Then Exit Function
+If MsgBox("This will refresh the Customer delivery times and averages for the " & Loc & " location" & Chr(13) & "Do you wish to proceed?", vbYesNo, "Caution!") = vbNo Then Exit Function
+
+DoCmd.SetWarnings False
+'Build first query
+CurrentDb.CreateQueryDef "qryCustTime1", "SELECT tblOrders" & Loc & ".[Trip Number], tblCustomers" & Loc & ".Cname, Sum(tblOrders" & Loc & ".Pieces) AS SumOfPieces, Sum(tblOrders" & Loc & ".Weight) AS SumOfWeight, tblOrders" & Loc & ".[Arrival Time], tblOrders" & Loc & ".DepartureTime FROM tblOrders" & Loc & " LEFT JOIN tblCustomers" & Loc & " ON tblOrders" & Loc & ".Cnumber = tblCustomers" & Loc & ".Cnumber WHERE (((tblOrders" & Loc & ".RDD) >= DateAdd('m', -6, Date()) And (tblOrders" & Loc & ".RDD) <= Date())) GROUP BY tblOrders" & Loc & ".[Trip Number], tblCustomers" & Loc & ".Cname, tblOrders" & Loc & ".[Arrival Time], tblOrders" & Loc & ".DepartureTime HAVING (((tblOrders" & Loc & ".[Trip Number]) Is Not Null) And ((tblOrders" & Loc & ".[Arrival Time]) Is Not Null) And ((tblOrders" & Loc & ".DepartureTime) Is Not Null));"
+'Build second query
+CurrentDb.CreateQueryDef "qryCustTime2", "SELECT qryCustTime1.[Trip Number], qryCustTime1.Cname, qryCustTime1.SumOfPieces, qryCustTime1.SumOfWeight, qryCustTime1.[Arrival Time], qryCustTime1.DepartureTime, ([DepartureTime]-[Arrival Time])*24 AS Hours, IIf([SumOfPieces]=0,[Hours],[SumOfPieces]/[Hours]) AS PieceRate, IIf([SumOfWeight]=0,[Hours],[SumOfWeight]/[Hours]) AS WeightRate from qryCustTime1 WHERE (((qryCustTime1.[Arrival Time]) < [DepartureTime]));"
+'Build temporary data table
+DoCmd.RunSQL "SELECT qryCustTime2.Cname, Avg(qryCustTime2.PieceRate) AS AvgOfPieceRate, Avg(qryCustTime2.WeightRate) AS AvgOfWeightRate INTO tblTempCustDelRate from qryCustTime2 GROUP BY qryCustTime2.Cname ORDER BY qryCustTime2.Cname;"
+'Delete old queries
+If DCount("[Name]", "MsysObjects", "[Name] = 'qryCustTime1'") = 1 Then DoCmd.DeleteObject acQuery, "qryCustTime1"
+If DCount("[Name]", "MsysObjects", "[Name] = 'qryCustTime2'") = 1 Then DoCmd.DeleteObject acQuery, "qryCustTime2"
+'Update exsisting records
+DoCmd.RunSQL "UPDATE tblCustDelRate INNER JOIN tblTempCustDelRate ON tblCustDelRate.Cname = tblTempCustDelRate.Cname SET tblCustDelRate.PieceRate = [tblTempCustDelRate]![AvgOfPieceRate], tblCustDelRate.WeightRate = [tblTempCustDelRate]![AvgOfWeightRate];"
+'Add new records
+DoCmd.RunSQL "INSERT INTO tblCustDelRate ( Cname, PieceRate, WeightRate ) SELECT tblTempCustDelRate.Cname, tblTempCustDelRate.AvgOfPieceRate, tblTempCustDelRate.AvgOfWeightRate from tblTempCustDelRate;"
+'Delete temporary data table
+If DCount("[Name]", "[MSysObjects]", "[Name] = 'tblTempCustDelRate'") = 1 Then DoCmd.DeleteObject acTable, "tblTempCustDelRate"
+DoCmd.SetWarnings True
+End Function
+
+Public Function TripEstimate(ByVal strRoute As String, ByVal numDriver As Integer, ByVal datDelDate As Date, ByVal datStartTime As Date) As Double
+If LoggedIn() = False Then Exit Function
+Dim strStops, strDriverDeparturePoint, strStartStopZip, strFrom, StrTo As String
+Dim i As Integer
+Dim datCurrentTime, datReceivingTime As Date
+Dim dblDistance, dblCustTime, dblWaitingTime As Double
+Dim db As DAO.Database
+Dim rsStops As DAO.Recordset
+Const dblPreTrip As Integer = 30
+Const dblPostTrip As Integer = 15
+Const dblLunch As Integer = 30
+Const dblFuel As Integer = 30
+
+
+strStops = "SELECT tblCustomersNASH.Cname, tblOrdersNASH.Seq, Sum(tblOrdersNASH.Pieces) AS SumOfPieces, Sum(tblOrdersNASH.Weight) AS SumOfWeight, tblCustomersNASH.Czip, tblCustDelRate.PieceRate, tblCustDelRate.WeightRate, tblOrdersNASH.RDD, Max(tblCustomersNASH.[Begin Rec]) AS [MaxOfBegin Rec] FROM (tblOrdersNASH LEFT JOIN tblCustomersNASH ON tblOrdersNASH.Cnumber = tblCustomersNASH.Cnumber) LEFT JOIN tblCustDelRate ON tblCustomersNASH.Cname = tblCustDelRate.Cname WHERE (((tblOrdersNASH.Route) = '" & strRoute & "')) GROUP BY tblCustomersNASH.Cname, tblOrdersNASH.Seq, tblCustomersNASH.Czip, tblCustDelRate.PieceRate, tblCustDelRate.WeightRate, tblOrdersNASH.RDD HAVING (((tblOrdersNASH.RDD) = #" & datDelDate & "#)) ORDER BY tblOrdersNASH.Seq;"
+strDriverDeparturePoint = DLookup("[txtDefaultDeparture]", "[tblDriverDefaultDeparturePoint]", "[numDriverNumber] = " & numDriver)
+strStartStopZip = DLookup("[Czip]", "[tblCustomersNASH]", "[Cnumber] = '" & strDriverDeparturePoint & "'")
+
+Set db = CurrentDb
+Set rsStops = db.OpenRecordset(strStops)
+
+i = 1
+datCurrentTime = DateAdd("n", dblPreTrip, datStartTime)
+MsgBox "Departure Time " & datCurrentTime, vbOKOnly, "Current Time"
+With rsStops
+    .MoveLast
+    .MoveFirst
+    dblDistance = ZipDist(strStartStopZip, .Fields("Czip"))
+    datCurrentTime = DateAdd("n", CInt((ZipDist(strStartStopZip, .Fields("Czip")) / 50) * 60), datCurrentTime)
+    If .Fields("[MaxOfBegin Rec]") >= #8:00:00 PM# And .Fields("[MaxOfBegin Rec]") <= #11:59:00 PM# Then
+        datReceivingTime = .Fields("[MaxOfBegin Rec]") + DateAdd("d", -1, datDelDate)
+    Else
+        datReceivingTime = .Fields("[MaxOfBegin Rec]") + datDelDate
+    End If
+    If datCurrentTime < datReceivingTime Then
+        dblWaitingTime = datReceivingTime - datCurrentTime
+        datCurrentTime = datCurrentTime + CDate(datReceivingTime - datCurrentTime)
+    End If
+    MsgBox "Waiting at first customer " & dblWaitingTime, vbOKOnly, "Waiting Time"
+    MsgBox "Current Time After Waiting " & datCurrentTime, vbOKOnly, "Current Time"
+    Do Until i > .RecordCount
+        strFrom = .Fields("Czip")
+        dblCustTime = dblCustTime + (.Fields("SumOfPieces") / .Fields("PieceRate"))
+        datCurrentTime = DateAdd("n", CInt((.Fields("SumOfPieces") / .Fields("PieceRate")) * 60), datCurrentTime)
+        MsgBox "Time departing Customer " & datCurrentTime, vbOKOnly, "Current Time"
+        If i <> .RecordCount Then
+            .MoveNext
+            dblDistance = dblDistance + ZipDist(strFrom, .Fields("Czip"))
+            datCurrentTime = DateAdd("n", (CInt(ZipDist(strFrom, .Fields("Czip")) / 50) * 60), datCurrentTime)
+            MsgBox "Time Arriving at Customer " & datCurrentTime, vbOKOnly, "Current Time"
+            If .Fields("[MaxOfBegin Rec]") >= #8:00:00 PM# And .Fields("[MaxOfBegin Rec]") <= #11:59:00 PM# Then
+                datReceivingTime = .Fields("[MaxOfBegin Rec]") + DateAdd("d", -1, datDelDate)
+            Else
+                datReceivingTime = .Fields("[MaxOfBegin Rec]") + datDelDate
+            End If
+            MsgBox "Time Customer Opens " & datReceivingTime, vbOKOnly, "Receiving Time"
+            If datCurrentTime < datReceivingTime Then
+                dblWaitingTime = dblWaitingTime + (datReceivingTime - datCurrentTime)
+                datCurrentTime = datCurrentTime + CDate(datReceivingTime - datCurrentTime)
+            End If
+            MsgBox "Waiting at first customer " & dblWaitingTime, vbOKOnly, "Waiting Time"
+            MsgBox "Current Time After Waiting " & datCurrentTime, vbOKOnly, "Current Time"
+        End If
+        i = i + 1
+    Loop
+    dblDistance = dblDistance + ZipDist(strFrom, strStartStopZip)
+    datCurrentTime = DateAdd("n", CInt((ZipDist(strFrom, strStartStopZip) / 50) * 60), datCurrentTime)
+    MsgBox "Time Returning to Jackson " & datCurrentTime, vbOKOnly, "Current Time"
+    
+End With
+
+rsStops.Close
+Set rsStops = Nothing
+Set db = Nothing
+
+TripEstimate = (dblCustTime + (dblDistance / 50)) + ((dblPreTrip + dblPostTrip + dblFuel) / 60)
+
+If TripEstimate > 8 Then
+    TripEstimate = TripEstimate + (dblLunch / 60)
+End If
+
+End Function

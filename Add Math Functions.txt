@@ -1,0 +1,30 @@
+Option Compare Database
+
+Public Function Asin(X As Double) As Double
+If (Sqr(1 - X * X) <= 0.000000000001) And (Sqr(1 - X * X) >= -0.000000000001) Then
+Asin = PI / 2
+Else
+Asin = Atn(X / Sqr(-X * X + 1))
+End If
+End Function
+
+Public Function Acos(X) As Double
+ 
+If Round(X, 8) = 1# Then Acos = 0#: Exit Function
+If Round(X, 8) = -1# Then Acos = PI: Exit Function
+Acos = Atn(-X / Sqr(-X * X + 1)) + 2 * Atn(1)
+ 
+End Function
+
+Public Function Atan(ByVal X As Double, ByVal Y As Double) As Double
+If X = 0 And Y = 0 Then
+Atan = 0
+Else
+If X = 0 Then X = 0.00000000001
+Atan = Atn(Y / X) - PI * (X < 0)
+End If
+End Function
+
+Function Pow(n As Double, e As Double) As Double
+    Pow = n ^ e
+End Function

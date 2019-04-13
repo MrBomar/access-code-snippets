@@ -1,0 +1,176 @@
+Public Sub Estimate()
+'This sub will estimate delivery times, unloading times, waiting times, and end time
+On Error GoTo Err_EstimateRoute
+'Dim msg, ErrorType As String
+Dim Result As Variant
+Dim CurrentTime As Date
+Dim NextRoute As Boolean
+Dim StopCount As Long
+Dim PointA As Long
+Dim PointB As Long
+Dim Weight As Long
+Dim DrivingTime As Long
+Dim WaitingTime As Long
+Dim UnloadingTime As Long
+Dim CurrentRoute As String
+
+cRS.MoveLast
+cRS.MoveFirst
+Do Until cRS.EOF
+        
+    'Reset values at the beginning of each route
+    NextRoute = False
+    StopCount = 1
+    Weight = 0
+    DrivingTime = 0
+    WaitingTime = 0
+    UnloadingTime = 0
+    CurrentRoute = cRS!Route
+    
+    'Determine route type
+    If Left(cRS!RouteCode, 1) = "Z" Then 'Skip all "Z" routes since these are irregular and generate no revenue
+        NextRoute = True
+    Else
+        'Log routes without a starting point.
+        If IsNull(cRS!StartingPoint) Or cRS!StartingPoint = 0 Then
+            cErrorLog.AddError = "Route " & cRS!RouteCode & " has no starting point. Estimate could not be performed."
+            NextRoute = True 'Will cause record to cycle
+        End If
+    
+        'Log routes without an ending point.
+        If IsNull(cRS!EndingPoint) Or cRS!EndingPoint = 0 Then
+            cErrorLog.AddError = "Route " & cRS!RouteCode & " has no ending point. Estimate could not be performed."
+            NextRoute = True 'Will cause record to cycle
+        End If
+        
+        'Update CurrentTime
+        If IsNull(cRS!PlannedDeparture) Then 'If there is no default departure then set default
+            CurrentTime = DelDate + #12:00:00 AM# 'Set default departure to midnight so the route can still be reviewed.
+            
+            'Log this as an error as each route should have a default departure time
+            cErrorLog.AddError = "Route " & cRS!RouteCode & " has no default departure time. For this estimate midnight was used."
+        Else
+            CurrentTime = cRS!PlannedDeparture
+        End If
+    End If
+    
+    If NextRoute = True Then cRS.MoveNext
+    
+    Do Until NextRoute = True
+        
+        'Determine if first stop
+        If IsNull(cRS!CustomerMasterID) Then
+            'This happens when a driver had a default route and there are no orders for that route.
+            'Because there are no orders for this route, we are going to change the route to ZS.
+            cRS.Edit
+            cRS!RouteCode = "ZS"
+            cRS.Update
+            cRS.MoveNext
+            Exit Do
+        ElseIf StopCount = 1 Then
+            PointA = cRS!StartingPoint
+            PointB = cRS!CustomerMasterID
+        Else
+            PointB = cRS!CustomerMasterID
+        End If
+        
+        'Weight Tracking
+        Weight = Weight + Nz(cRS!StopWeight, 0)
+        
+        'Retrieve travel data
+        Result = Split(RetrieveTravelEstimate(PointA, PointB), "|")
+        
+        'Open record for editing
+        cRS.Edit
+        
+        'Store the travel data
+        cRS!TimeToStop = Result(1) 'Records the travel time in minutes to the stop
+        cRS!DistanceToStop = Result(0) 'Records the distance in miles to the stop
+        DrivingTime = DrivingTime + CLng(Result(1)) 'Tracking the total driving time in minutes
+        
+        'Update the current time
+        CurrentTime = DateAdd("n", Result(1), CurrentTime)
+        
+        'Save the current time as the arrival time
+        cRS!EstimatedArrival = CurrentTime 'Working
+        
+        
+        'Assess if the ArrivalTime is less than the DeliveryWindowOpen
+        If CurrentTime < (DelDate + TimeValue(cRS!DeliveryWindowOpen)) Then
+            
+            'Calculate and store the time spent waiting
+            cRS!WaitingAtStop = CLng(((DelDate + TimeValue(cRS!DeliveryWindowOpen)) - CurrentTime) * 1440) 'Working
+            WaitingTime = WaitingTime + cRS!WaitingAtStop 'Tracking waiting time in minutes
+            
+            'Update the current time
+            CurrentTime = DateAdd("n", cRS!WaitingAtStop, CurrentTime)
+        
+        Else
+        
+            'Set the WaitingAtCustomer to Zero
+            cRS!WaitingAtStop = CLng(0)
+        
+        End If
+        
+        'Update the current time to include unloading at stop
+        CurrentTime = DateAdd("n", cRS!UnloadingAtStop, CurrentTime)
+        
+        'Store the current time in the EstimatedDeparture
+        cRS!EstimatedDeparture = CurrentTime 'Working
+        
+        'Set PointA to PointB
+        PointA = cRS!CustomerMasterID
+        
+        'Tracking Unloading Time
+        UnloadingTime = UnloadingTime + cRS!UnloadingAtStop
+        
+        'Save changes made thus far
+        cRS.Update
+        
+        'Check to see if next stop is part of the route
+        cRS.MoveNext
+        If CurrentRoute = cRS.Fields("YellowPadRoute.RouteCode") Then
+            StopCount = StopCount + 1
+        Else
+            'Go back to current route
+            cRS.MovePrevious
+                        
+            'Retrieve distance and duration to end of trip
+            PointB = cRS!EndingPoint
+            Result = Split(RetrieveTravelEstimate(PointA, PointB), "|")
+            
+            'Update the CurrentTime
+            CurrentTime = DateAdd("n", Result(1), CurrentTime)
+                        
+            'Update the data on the Route portion
+            cRS.Edit
+            cRS!PlannedReturnTime = CurrentTime 'Record the estimated return time
+            cRS!StopCount = StopCount 'Record number of stops
+            cRS!RouteWeight = CLng(Round(Weight, 0)) 'Record total weight
+            cRS!DrivingTime = CLng(Round(DrivingTime, 0)) + CLng(Result(1)) 'Record total driving time
+            cRS!WaitingTime = CLng(Round(WaitingTime, 0)) 'Record total waiting time
+            cRS!UnloadingTime = CLng(Round(UnloadingTime, 0)) 'Record total unloading time
+            cRS.Update
+            
+            'Update the YellowPad data
+            cWeight = cWeight + CLng(Weight)
+            cDrivingTime = cDrivingTime + CLng(Round(DrivingTime, 0))
+            cWaitingTime = cWaitingTime + CLng(Round(WaitingTime, 0))
+            cUnloadingTime = cUnloadingTime + CLng(Round(UnloadingTime, 0))
+            cDeliveries = cDeliveries + StopCount
+            
+            'Move to next record
+            cRS.MoveNext
+            
+            'Flag to break loop
+            NextRoute = True
+        End If
+    Loop
+Loop
+        
+Exit Sub
+        
+Err_EstimateRoute:
+    cErrorLog.AddError = "Error Code: " & Err.Number & " | " & Err.Description
+            
+End Sub

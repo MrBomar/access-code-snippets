@@ -1,0 +1,73 @@
+Option Compare Database
+
+Private cLogDate As Date
+Private cLogName As String
+Private cErrors As New Collection
+Private cPath As String
+
+Property Get LogDate() As Date
+    LogDate = cLogDate
+End Property
+
+Property Let LogDate(datDate As Date)
+    cLogDate = datDate
+End Property
+
+Property Get LogName() As String
+    cLogName = LogName
+End Property
+
+Property Let LogName(strLogName As String)
+    cLogName = strLogName
+    cPath = cPath & "\" & FileFormat(strLogName) & ".html"
+End Property
+
+Property Let AddError(strError As String)
+    cErrors.Add strError
+End Property
+
+Property Get Path() As String
+    Path = cPath
+End Property
+
+Property Get GetErrors() As Collection
+    GetErrors = cErrors
+End Property
+
+Private Sub Class_Initialize()
+    cPath = CStr(Environ("TEMP"))
+End Sub
+
+Public Sub Class_Terminate()
+'This sub till compile the data into an HTML and open the Error Log using the default program
+
+'Verify that the log contains data exit if it does not
+If cErrors.Count = 0 Then Exit Sub
+
+Dim strOutput As String
+
+strOutput = "<html><head></head><body><h1>" & cLogName & "</h1><ul>"
+
+For Each itm In cErrors
+    strOutput = strOutput & "<li>" & itm & "</li>"
+Next
+
+strOutput = strOutput & "</ul></body></html>"
+
+If NewTextFile(cPath, True) = False Then
+    MsgBox "There was an error creating the new log." & Chr(13) & cPath & " was not created.", vbOKOnly + vbCritical, "Error"
+    Exit Sub
+End If
+
+If WriteTextFile(cPath, strOutput) = False Then
+    MsgBox "There was a problem writing to " & cPath & ".", vbOKOnly + vbCritical, "Error"
+    Exit Sub
+End If
+
+'Open the file for viewing
+Application.FollowHyperlink (cPath)
+
+End Sub
+
+
+

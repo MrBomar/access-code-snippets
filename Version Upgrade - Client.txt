@@ -1,0 +1,50 @@
+Private Sub Form_Open(Cancel As Integer)
+On Error Resume Next
+    Dim strCurrent, strNew, strLocalPath, strNetworkPath, strLaunchUpdate, strWindowsID As String
+    Dim varResult As Variant
+
+    'Check version and initiate upgrade process
+    strNew = DLookup("[txtVersionNumber]", "[tblClientCurrentVersion]", "")
+    strCurrent = DLookup("[txtMyVersion]", "[tblClientVersion]", "")
+    If strCurrent <> strNew Then
+        varResult = MsgBox("Your copy of the Driver Performance Module is out of date." & Chr(13) & "Click 'OK' to download the latest version.", vbExclamation + vbOKCancel, "Outdated")
+        If varResult = vbOK Then
+            strLocalPath = CurrentDb.Name
+            strNetworkPath = Chr(34) & "R:\Logistics\Transportation\1365\Driver Performance\Resources\UpgradeClient.mde" & Chr(34)
+            strWindowsID = Environ("USERNAME")
+            DoCmd.SetWarnings False
+            DoCmd.RunSQL "INSERT INTO tblClientUpgradeLog ( txtUserPath, datUpgradeDate, txtWindowsID, txtOldVersion, txtNewVersion ) SELECT '" & strLocalPath & "' AS Expr1, Date() AS Expr2, '" & strWindowsID & "' AS Expr3, '" & strCurrent & "' AS Expr4, '" & strNew & "' AS Expr5;"
+            DoCmd.SetWarnings True
+            strLaunchUpdate = "MSAccess.exe " & q & strNetworkPath & q
+            Shell strLaunchUpdate, vbNormalFocus
+            DoCmd.Quit
+            Exit Sub
+        Else
+            DoCmd.Quit
+            Exit Sub
+        End If
+    End If
+    
+    DoCmd.SetWarnings False
+    'Make local copy of tblDatabseUsers
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblDatabaseUsersLocal'") = 1 Then DoCmd.DeleteObject acTable, "tblDatabaseUsersLocal"
+    DoCmd.RunSQL "SELECT tblDatabaseUsers.* INTO tblDatabaseUsersLocal FROM tblDatabaseUsers;"
+    
+    'Make local copy of tblClientDepartments
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblClientDepartmentsLocal'") = 1 Then DoCmd.DeleteObject acTable, "tblClientDepartmentsLocal"
+    DoCmd.RunSQL "SELECT tblClientDepartments.* INTO tblClientDepartmentsLocal FROM tblClientDepartments;"
+    
+    'Make local copy of tblClientLocations
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblClientLocationsLocal'") = 1 Then DoCmd.DeleteObject acTable, "tblClientLocationsLocal"
+    DoCmd.RunSQL "SELECT tblClientLocations.* INTO tblClientLocationsLocal FROM tblClientLocations;"
+
+    'Make local copy of tblDatabaseUsersLocations
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblDatabaseUsersLocationsLocal'") = 1 Then DoCmd.DeleteObject acTable, "tblDatabaseUsersLocationsLocal"
+    DoCmd.RunSQL "SELECT tblDatabaseUsersLocations.* INTO tblDatabaseUsersLocationsLocal FROM tblDatabaseUsersLocations;"
+
+    'Make local copy of tblClientActiveForms
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblClientActiveFormsLocal'") = 1 Then DoCmd.DeleteObject acTable, "tblClientActiveFormsLocal"
+    DoCmd.RunSQL "SELECT tblClientActiveForms.* INTO tblClientActiveFormsLocal FROM tblClientActiveForms;"
+
+    DoCmd.SetWarnings True
+End Sub

@@ -1,0 +1,169 @@
+Option Compare Database
+'--------------------------------------------------------------------------------------------------------------'
+'| This class allows the developer to quickly assemble an HTML table element from query or table data.        |'
+'| The formatting is intended to be used to compose emails and is  compatable with Microsoft Outlook          |'
+'| Microsoft Outlook is not compatable with CSS style sheets or CSS in the <head>, so inline styling is used. |'
+'| This class is intended to be instanciated within an instance of the class OutlookEmail.                    |'
+'--------------------------------------------------------------------------------------------------------------'
+
+Private pHeadBgColor As String 'Store the background color property for the <th> tag
+Private pHeadTextColor As String 'Store the fore color property for the <th> tag
+Private pHeadTextAlign As String 'Store the cell alignment property for the <th> tag
+Private pHeadFont As New Collection 'Store the font properties for the <th> tag
+Private pHeadBorders As New Collection 'Stores the style for the border CSS statement
+Private pDataBgColor As String 'Store the background color property for the <td> tag
+Private pDataTextColor As String 'Store the fore color property for the <td> tag
+Private pDataTextAlign As String 'Store the cell alignment property for the <td> tag
+Private pDataFont As New Collection 'Store the font properties for the <th> tag
+Private pDataBorders As New Collection 'Stores the style for the border CSS statement
+Private pCaption As String
+Private pPadding As Integer
+
+Public Property Let FormatHeadColors(BackgroundColor As HTMLColor, TextColor As HTMLColor)
+    pHeadBgColor = LongToRGB(BackgroundColor)
+    pHeadTextColor = LongToRGB(TextColor)
+End Property
+
+Public Property Let FormatDataColors(BackgroundColor As HTMLColor, TextColor As HTMLColor)
+    pDataBgColor = LongToRGB(BackgroundColor)
+    pDataTextColor = LongToRGB(TextColor)
+End Property
+
+Public Property Let FormatHeadBorder(width As Byte, Style As HTMLBorderStyle, Color As HTMLColor, Position As HTMLBorderPosition)
+    Dim strPos As String
+    Dim strTxt As String
+    
+    Call BorderPosition(strPos, strTxt, Position)
+    Call RemoveConflict(pHeadBorders, strPos, Position)
+    Call AddProperties(pHeadBorders, strTxt, strPos, Color, Style, width)
+End Property
+
+Public Property Let FormatDataBorder(width As Byte, Style As HTMLBorderStyle, Color As HTMLColor, Position As HTMLBorderPosition)
+    Dim strPos As String
+    Dim strTxt As String
+    
+    Call BorderPosition(strPos, strTxt, Position)
+    Call RemoveConflict(pDataBorders, strPos, Position)
+    Call AddProperties(pDataBorders, strTxt, strPos, Color, Style, width)
+End Property
+
+Public Property Let FormatHeadAlign(Align As String)
+    Select Case Align
+        Case "Left"
+            pHeadTextAlign = "text-align: left;"
+        Case "Right"
+            pHeadTextAlign = "text-align: right;"
+        Case "Center"
+            pHeadTextAlign = "text-align: center;"
+        Case Else
+            pHeadTextAlign = "text-align: justify;"
+    End Select
+End Property
+
+Public Property Let FormatDataAlign(Align As String)
+    Select Case Align
+        Case "Left"
+            pDataTextAlign = "text-align: left;"
+        Case "Right"
+            pDataTextAlign = "text-align: right;"
+        Case "Center"
+            pDataTextAlign = "text-align: center;"
+        Case Else
+            pDataTextAlign = "text-align: justify;"
+    End Select
+End Property
+
+Public Property Let FormatHeadFont(Result As String)
+    'Populate in similar fashion to the border properties
+End Property
+
+Public Property Let FormatDataFont(Result As String)
+    'Populate in similar fashion to the border properties
+End Property
+
+Private Function LongToRGB(lngColor) As String
+    Dim intRed, intGreen, intBlue As Integer
+    
+    intRed = (lngColor Mod 256)
+    intGreen = (lngColor \ 256) Mod 256
+    intBlue = (lngColor \ 65536) Mod 256
+    
+    LongToRGB = "(" & intRed & ", " & intGreen & ", " & intBlue & ")"
+End Function
+
+Private Function BorderStyle(bStyle As Byte) As String
+    Select Case bStyle
+        Case 1
+            BorderStyle = "outset"
+        Case 2
+            BorderStyle = "hidden"
+        Case 3
+            BorderStyle = "dotted"
+        Case 4
+            BorderStyle = "dashed"
+        Case 5
+            BorderStyle = "solid"
+        Case 6
+            BorderStyle = "double"
+        Case 7
+            BorderStyle = "groove"
+        Case 8
+            BorderStyle = "ridge"
+        Case 9
+            BorderStyle = "inset"
+        Case Else
+            BorderStyle = "none"
+    End Select
+End Function
+
+Private Sub Class_Initialize()
+
+End Sub
+
+Private Function FindItem(ByRef col As Collection, key As String) As Boolean
+On Error Resume Next
+    col.Item key
+    FindItem = (Err.Number = 0)
+End Function
+
+Private Sub BorderPosition(ByRef Position As String, ByRef Text As String, intPosition As HTMLBorderPosition)
+    'Fix position specified
+    Select Case intPosition
+        Case 0
+            Position = "BorderTop"
+            Text = "border-top"
+        Case 1
+            Position = "BorderRight"
+            Text = "border-right"
+        Case 2
+            Position = "BorderBottom"
+            Text = "border-bottom"
+        Case 3
+            Position = "BorderLeft"
+            Text = "border-left"
+        Case Else
+            Position = "BorderAll"
+            Text = "border"
+    End Select
+End Sub
+
+Private Sub RemoveConflict(ByRef myCollection As Collection, strPos As String, intPosition As HTMLBorderPosition)
+    'Remove duplicate/conflicting entries
+    If intPosition <> 4 Then
+        If FindItem(myCollection, "BorderAllStyle") = True Then myCollection.Remove "BorderAllStyle"
+        If FindItem(myCollection, "BorderAllColor") = True Then myCollection.Remove "BorderAllColor"
+        If FindItem(myCollection, strPos & "Style") = True Then myCollection.Remove strPos & "Style"
+        If FindItem(myCollection, strPos & "Color") = True Then myCollection.Remove strPos & "Color"
+        If FindItem(myCollection, strPos & "Width") = True Then myCollection.Remove strPos & "Width"
+    Else
+        myCollection = Nothing
+    End If
+    
+End Sub
+
+Private Sub AddProperties(ByRef myCollection As Collection, myTxt As String, myPos As String, myColor, myStyle, myWidth)
+    'Create new properties
+    myCollection.Add myTxt & "-style: " & BorderStyle(Style) & ";", myPos & "Style"
+    myCollection.Add myTxt & "-color: " & LongToRGB(Color) & ";", myPos & "Color"
+    myCollection.Add myTxt & "-width: " & width & "px;", myPos & "Width"
+End Sub

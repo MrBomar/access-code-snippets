@@ -1,0 +1,41 @@
+Option Compare Database
+
+Public Function DriverLogImport()
+Dim strCI, strQ, strP As String
+If LoggedIn() = False Then
+    Cancel = True
+    Exit Function
+End If
+    strQ = Nz(DLookup("[txtQualcommImport]", "[tblDatabaseUsersLocal]", "[numUserIDNumber] = " & Forms!frmOpeningSplash!UserID), "NO")
+    If strQ = "NO" Then
+        MsgBox "You need to specify your default import folder", vbExclamation + vbOKOnly, "Specify Folder"
+        DoCmd.OpenForm "frmDatabaseUsersEdit"
+        Exit Function
+    End If
+    
+    If Len(Dir(strQ & "\DriverLogExport.xls")) = 0 Then
+        MsgBox "File 'DriverLogExport.xls' was not found in the '" & strQ & "' directory." & Chr(13) & "Please save a copy of this file to the specified directory.", vbCritical + vbOKOnly, "Can't Import"
+        Exit Function
+    Else
+        GoSub QualcommImport
+        GoSub CleanUp
+    End If
+MsgBox "Import Complete!", vbExclamation, "Success!"
+Exit Function
+    
+QualcommImport:
+    DoCmd.SetWarnings False
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblDriverLogImport'") = 1 Then DoCmd.DeleteObject acTable, "tblDriverLogImport"
+    DoCmd.TransferSpreadsheet acImport, acSpreadsheetTypeExcel9, "tblDriverLogImport", strQ & "\DriverLogExport.xls", True
+    DoCmd.RunSQL "INSERT INTO tblDriverLog ( txtDriverID, [txtCo-DriverID], datStartTime, txtActivity, numDuration, txtLocation, txtTractorID, txtFlags ) SELECT tblDriverLogImport.[Driver ID], tblDriverLogImport.[Co-Driver ID], tblDriverLogImport.[Start _Time], tblDriverLogImport.Activity, tblDriverLogImport.[Duration (seconds)], tblDriverLogImport.Location, tblDriverLogImport.[Tractor ID], tblDriverLogImport.Flags from tblDriverLogImport;"
+    If DCount("[Name]", "MSysObjects", "[Name] = 'tblDriverLogImport'") = 1 Then DoCmd.DeleteObject acTable, "tblDriverLogImport"
+    DoCmd.SetWarnings True
+    Return
+    
+CleanUp:
+    'Removes entries greater than 60 days.
+    DoCmd.SetWarnings False
+    DoCmd.RunSQL "DELETE tblDriverLog.txtDriverID, tblDriverLog.[txtCo-DriverID], tblDriverLog.datStartTime, tblDriverLog.txtActivity, tblDriverLog.numDuration, tblDriverLog.txtLocation, tblDriverLog.txtTractorID, tblDriverLog.txtFlags from tblDriverLog WHERE (((tblDriverLog.datStartTime) < Date() - 60));"
+    DoCmd.SetWarnings True
+    Return
+End Function

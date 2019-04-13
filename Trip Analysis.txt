@@ -1,0 +1,153 @@
+Option Compare Database
+Public Function TripAnalysis()
+If MsgBox("This process of calculating transit times is intended to be run once a month." & Chr(13) & "It may take up to 15 minutes to complete this process." & Chr(13) & "Do you wish to proceed?", vbInformation + vbYesNo, "Verify") = vbNo Then Exit Function
+Dim dbs As DAO.Database
+Dim rsTrips, rsData, rsOutput As DAO.Recordset
+Dim lngTrips, lngData As Long
+Dim strDataSQL, strTripsSQL As String
+Dim tdfTemp As TableDef
+Dim dblRemove As Double
+Set dbs = CurrentDb
+
+DoCmd.SetWarnings False
+'Built list of trips and populate departure
+DoCmd.RunSQL "SELECT tblTripAuditing.numTripNumber AS Trip, tblCustomersNASH.Cname AS Location, tblTripAuditing.datWeekEnding AS [End], tblTripAuditing.datQualcommLeaveYard AS Start, 'A' AS lstSort, 'Start' AS Type INTO tblTRANTripTransitRaw " & _
+    "FROM (((tblTripAuditing LEFT JOIN tblTripsNASH ON tblTripAuditing.numTripNumber = tblTripsNASH.[Trip Number]) LEFT JOIN tblDriversNASH ON tblTripsNASH.[Driver Number] = tblDriversNASH.[Driver Number]) LEFT JOIN tblDriverDefaultDeparturePoint ON tblDriversNASH.[Driver Number] = tblDriverDefaultDeparturePoint.numDriverNumber) LEFT JOIN tblCustomersNASH ON tblDriverDefaultDeparturePoint.txtDefaultDeparture = tblCustomersNASH.Cnumber WHERE (((tblTripAuditing.datWeekEnding) >= #1/1/2017# And (tblTripAuditing.datWeekEnding) <= #6/30/2017#) And ((tblTripAuditing.selAuditComplete) = True) And ((tblTripAuditing.selPaperLog) = False) And ((tblTripAuditing.txtLocation) = 'Lebanon') And ((tblTripsNASH.Route) <> 'ZS') And ((tblDriverDefaultDeparturePoint.txtWHSE) = 'NASH'));"
+
+'Add to list all stops info from Orders
+DoCmd.RunSQL "INSERT INTO tblTRANTripTransitRaw ( Trip, Location, [End], Start, lstSort, Type ) SELECT tblTRANTripTransitRaw.Trip, tblCustomersNASH.Cname, tblOrdersNASH.[Arrival Time], tblOrdersNASH.DepartureTime, 'B' AS lstSort, 'Cust' AS Type " & _
+    "FROM (tblTRANTripTransitRaw LEFT JOIN tblOrdersNASH ON tblTRANTripTransitRaw.Trip = tblOrdersNASH.[Trip Number]) LEFT JOIN tblCustomersNASH ON tblOrdersNASH.Cnumber = tblCustomersNASH.Cnumber GROUP BY tblTRANTripTransitRaw.Trip, tblCustomersNASH.Cname, tblOrdersNASH.[Arrival Time], tblOrdersNASH.DepartureTime, 'B', 'Cust' ORDER BY tblTRANTripTransitRaw.Trip, tblOrdersNASH.[Arrival Time];"
+
+'Check for blank departures
+If DCount("[Trip]", "[tblTRANTripTransitRaw]", "IsNull([End])") > 0 Then
+    MsgBox "There are orders that are missing their departure time." & Chr(13) & "Please fix these order before running this process.", vbCritical + vbOKOnly, "Errors"
+    CurrentDb.CreateQueryDef "qryIncompleteOrders", "SELECT tblTRANTripTransitRaw.Trip, tblTRANTripTransitRaw.Location, tblTRANTripTransitRaw.End, tblTRANTripTransitRaw.Start from tblTRANTripTransitRaw WHERE (((tblTRANTripTransitRaw.End) Is Null));"
+    DoCmd.TransferSpreadsheet acExport, acSpreadsheetTypeExcel9, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'qryIncompleteOrders'") = 1 Then DoCmd.DeleteObject acQuery, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'tblTRANTripTransitRaw'") = 1 Then DoCmd.DeleteObject acTable, "tblTRANTripTransitRaw"
+    Exit Function
+End If
+
+'Check for blank Entries
+If DCount("[Trip]", "[tblTRANTripTransitRaw]", "isnull(Start)") > 0 Then
+    MsgBox "There are orders that have not been received." & Chr(13) & "Please fix these orders before running this process.", vbCritical + vbOKOnly, "Errors"
+    CurrentDb.CreateQueryDef "qryIncompleteOrders", "SELECT tblTRANTripTransitRaw.Trip, tblTRANTripTransitRaw.Location, tblTRANTripTransitRaw.End, tblTRANTripTransitRaw.Start from tblTRANTripTransitRaw WHERE (((tblTRANTripTransitRaw.Start) Is Null));"
+    DoCmd.TransferSpreadsheet acExport, acSpreadsheetTypeExcel9, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'qryIncompleteOrders'") = 1 Then DoCmd.DeleteObject acQuery, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'tblTRANTripTransitRaw'") = 1 Then DoCmd.DeleteObject acTable, "tblTRANTripTransitRaw"
+    Exit Function
+End If
+
+'Add Extra Stops
+DoCmd.RunSQL "INSERT INTO tblTRANTripTransitRaw ( Trip, Location, [End], Start, lstSort, Type ) SELECT tblTripExtraStops.numTripNumber, tblTripExtraStops.txtPlace, tblTripExtraStops.datStart, tblTripExtraStops.datEnd, 'B' AS lstSort, 'Extra' AS Type FROM tblTRANTripTransitRaw INNER JOIN tblTripExtraStops ON tblTRANTripTransitRaw.Trip = tblTripExtraStops.numTripNumber GROUP BY tblTripExtraStops.numTripNumber, tblTripExtraStops.txtPlace, tblTripExtraStops.datStart, tblTripExtraStops.datEnd, 'B', 'Extra';"
+
+'Add return to WHSE
+DoCmd.RunSQL "INSERT INTO tblTRANTripTransitRaw ( Trip, Location, [End], Start, lstSort, Type ) " & _
+    "SELECT tblTripAuditing.numTripNumber AS Trip, tblCustomersNASH.Cname AS Location, tblTripAuditing.datQualcommReturnYard, tblTripAuditing.datWeekEnding, 'D' AS lstSort, 'End' AS Type " & _
+    "FROM (((tblTripAuditing LEFT JOIN tblTripsNASH ON tblTripAuditing.numTripNumber = tblTripsNASH.[Trip Number]) LEFT JOIN tblDriversNASH ON tblTripsNASH.[Driver Number] = tblDriversNASH.[Driver Number]) LEFT JOIN tblDriverDefaultDeparturePoint ON tblDriversNASH.[Driver Number] = tblDriverDefaultDeparturePoint.numDriverNumber) LEFT JOIN tblCustomersNASH ON tblDriverDefaultDeparturePoint.txtDefaultDeparture = tblCustomersNASH.Cnumber " & _
+    "WHERE (((tblTripAuditing.datWeekEnding) >= #1/1/2017# And (tblTripAuditing.datWeekEnding) <= #6/30/2017#) And ((tblTripAuditing.selAuditComplete) = True) And ((tblTripAuditing.selPaperLog) = False) And ((tblTripAuditing.txtLocation) = 'Lebanon') And ((tblTripsNASH.Route) <> 'ZS') And ((tblDriverDefaultDeparturePoint.txtWHSE) = 'NASH'));"
+
+'Check for blank return to WHSE
+If DCount("[Trip]", "[tblTRANTripTransitRaw]", "IsNull([End])") > 0 Then
+    MsgBox "There are audits that are missing the return to yard time." & Chr(13) & "Please fix these audits before running this process.", vbCritical + vbOKOnly, "Errors"
+    CurrentDb.CreateQueryDef "qryIncompleteOrders", "SELECT tblTRANTripTransitRaw.Trip, tblTRANTripTransitRaw.Location, tblTRANTripTransitRaw.End, tblTRANTripTransitRaw.Start from tblTRANTripTransitRaw WHERE (((tblTRANTripTransitRaw.End) Is Null));"
+    DoCmd.TransferSpreadsheet acExport, acSpreadsheetTypeExcel9, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'qryIncompleteOrders'") = 1 Then DoCmd.DeleteObject acQuery, "qryIncompleteOrders"
+    If DCount("[Name]", "MsysObjects", "[Name] = 'tblTRANTripTransitRaw'") = 1 Then DoCmd.DeleteObject acTable, "tblTRANTripTransitRaw"
+    Exit Function
+End If
+
+'Open and verify trips
+strTripsSQL = "SELECT tblTRANTripTransitRaw.Trip from tblTRANTripTransitRaw GROUP BY tblTRANTripTransitRaw.Trip ORDER BY tblTRANTripTransitRaw.Trip;"
+Set rsTrips = dbs.OpenRecordset(strTripsSQL)
+rsTrips.MoveLast
+rsTrips.MoveFirst
+If rsTrips.RecordCount = 0 Then
+    MsgBox "There are no trips in this session", vbOKOnly, "Canceled"
+    Exit Function
+End If
+'Build temporary table for transit information
+If DCount("[Name]", "MSysObjects", "[Name] = 'tblTempTripData'") = 1 Then DoCmd.DeleteObject acTable, "tblTempTripData"
+Set tdfTemp = dbs.CreateTableDef("tblTempTripData")
+With tdfTemp
+    .Fields.Append .CreateField("Trip", dbLong)
+    .Fields.Append .CreateField("From", dbText)
+    .Fields.Append .CreateField("To", dbText)
+    .Fields.Append .CreateField("Start", dbDate)
+    .Fields.Append .CreateField("Finish", dbDate)
+    .Fields.Append .CreateField("Duration", dbDouble)
+    .Fields.Append .CreateField("Key", dbText)
+End With
+dbs.TableDefs.Append tdfTemp
+Set rsOutput = dbs.OpenRecordset("tblTempTripData")
+Do Until rsTrips.EOF 'Or MsgBox("Continue?", vbYesNo, "Stop") = vbNo
+    strDataSQL = "SELECT tblTRANTripTransitRaw.Trip, tblTRANTripTransitRaw.lstSort, tblTRANTripTransitRaw.End, tblTRANTripTransitRaw.Location, tblTRANTripTransitRaw.Start, tblTRANTripTransitRaw.Type from tblTRANTripTransitRaw WHERE (((tblTRANTripTransitRaw.Trip) = " & rsTrips!Trip & ")) ORDER BY tblTRANTripTransitRaw.Trip, tblTRANTripTransitRaw.lstSort, tblTRANTripTransitRaw.End;"
+    Set rsData = dbs.OpenRecordset(strDataSQL)
+    rsData.MoveLast
+    rsData.MoveFirst
+    dblRemove = 0
+    Do Until rsData.EOF
+        If rsData!Type = "Start" Then
+            rsOutput.AddNew
+            rsOutput!from = rsData!Location
+            rsOutput!Start = rsData!Start
+            rsOutput!Trip = rsData!Trip
+        ElseIf rsData!Type = "Extra" Then
+            dblRemove = dblRemove + CDbl(rsData!Start - rsData!End)
+        ElseIf rsData!Type = "Cust" Then
+            rsOutput!To = rsData!Location
+            rsOutput!finish = rsData!End
+            rsOutput!Key = rsOutput!from & " | " & rsOutput!To
+            If dblRemove = 0 Then
+                rsOutput!Duration = CDbl(rsOutput!finish - rsOutput!Start)
+            Else
+                rsOutput!Duration = CDbl(rsOutput!finish - rsOutput!Start) - dblRemove
+            End If
+            rsOutput.Update
+            rsOutput.AddNew
+            rsOutput!from = rsData!Location
+            rsOutput!Start = rsData!Start
+            rsOutput!Trip = rsData!Trip
+            dblRemove = 0
+        ElseIf rsData!Type = "End" Then
+            rsOutput!To = rsData!Location
+            rsOutput!finish = rsData!End
+            rsOutput!Key = rsOutput!from & " | " & rsOutput!To
+            If dblRemove = 0 Then
+                rsOutput!Duration = CDbl(rsOutput!finish - rsOutput!Start)
+            Else
+                rsOutput!Duration = CDbl(rsOutput!finish - rsOutput!Start) - dblRemove
+            End If
+            rsOutput.Update
+            dblRemove = 0
+        End If
+        rsData.MoveNext
+    Loop
+    rsTrips.MoveNext
+Loop
+
+rsData.Close
+rsTrips.Close
+rsOutput.Close
+
+Set rsData = Nothing
+Set rsTrips = Nothing
+Set rsOutput = Nothing
+Set dbs = Nothing
+
+'Clean up duration of <= 0
+DoCmd.RunSQL "DELETE tblTempTripData.Duration from tblTempTripData WHERE (((tblTempTripData.Duration) <= 0));"
+'Clean up left over tables
+If DCount("[Name]", "MsysObjects", "[Name] = 'tblTRANTripTransitRaw'") = 1 Then DoCmd.DeleteObject acTable, "tblTRANTripTransitRaw"
+'Build Calculated Query
+DoCmd.RunSQL "SELECT tblTempTripData.Key, tblTempTripData.From, tblTempTripData.To, Avg(tblTempTripData.Duration) AS AvgOfDuration, Min(tblTempTripData.Duration) AS MinOfDuration, Max(tblTempTripData.Duration) AS MaxOfDuration, StDev(tblTempTripData.Duration) AS StDevOfDuration INTO tblTRANTripCalculated from tblTempTripData GROUP BY tblTempTripData.Key, tblTempTripData.From, tblTempTripData.To;"
+'Update Exsisting Records
+DoCmd.RunSQL "UPDATE tblTRANTransitTimes LEFT JOIN tblTRANTripCalculated ON tblTRANTransitTimes.Key = tblTRANTripCalculated.Key SET tblTRANTransitTimes.Average = [tblTRANTripCalculated]![AvgOfDuration], tblTRANTransitTimes.Minimum = [tblTRANTripCalculated]![MinOfDuration], tblTRANTransitTimes.Maximum = [tblTRANTripCalculated]![MaxOfDuration], tblTRANTransitTimes.StandardDeviation = [tblTRANTripCalculated]![StDevOfDuration];"
+'Add new records
+DoCmd.RunSQL "INSERT INTO tblTRANTransitTimes ( [Key], [From], [To], Average, Minimum, Maximum, StandardDeviation ) SELECT tblTRANTripCalculated.Key, tblTRANTripCalculated.From, tblTRANTripCalculated.To, tblTRANTripCalculated.AvgOfDuration, tblTRANTripCalculated.MinOfDuration, tblTRANTripCalculated.MaxOfDuration, tblTRANTripCalculated.StDevOfDuration from tblTRANTripCalculated;"
+'Clean Up
+If DCount("[Name]", "MSysObjects", "[Name] = 'tblTRANTripCalculated'") = 1 Then DoCmd.DeleteObject acTable, "tblTRANTripCalculated"
+If DCount("[Name]", "MSysObjects", "[Name] = 'tblTempTripData'") = 1 Then DoCmd.DeleteObject acTable, "tblTempTripData"
+DoCmd.SetWarnings True
+MsgBox "Transit times have been updated.", vbExclamation, "Success!"
+End Function

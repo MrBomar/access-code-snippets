@@ -1,0 +1,159 @@
+Option Compare Database
+
+Public Function BuildHTMLTable(ByVal strData As String, strClass As String) As String
+    'Outlook does not support CSS in the head of the email, therefore all formatting must be done inline.
+    'Additionally, outlook does not support selecting alternating rows.
+    'Stylistic formatting will have to be called throughout the code building process to achieve the proper look
+    
+    Dim strHeader, strRows As String
+    
+    Dim rs As DAO.Recordset
+    Dim fldColumn As DAO.Field
+    Dim i As Long: i = 0
+    Set rs = CurrentDb.OpenRecordset(strData)
+    strHeader = "<table " & CSS(strClass, "table") & ">"
+    strRows = ""
+    
+    'Build th -or- Header
+    If rs.RecordCount <> 0 Then
+        For Each fldColumn In rs.Fields
+            strHeader = strHeader + "<th " & CSS(strClass, "th") & ">" & fldColumn.Name & "</th>"
+        Next
+        rs.MoveLast
+        rs.MoveFirst
+        Do While Not rs.EOF
+            If i Mod 2 = 0 Then
+                strRows = strRows + "<tr " & CSS(strClass, "trEven") & ">"
+            Else
+                strRows = strRows + "<tr " & CSS(strClass, "trOdd") & ">"
+            End If
+            For Each fldColumn In rs.Fields
+                strRows = strRows + "<td>" & fldColumn.Value & "</td>"
+            Next
+            strRows = strRows + "</tr>"
+            rs.MoveNext
+            i = i + 1
+        Loop
+        strRows = strRows + "</table>"
+    Else
+        strHeader = ""
+        strRows = ""
+    End If
+    
+    BuildHTMLTable = "<htmltags>" & strStyle & strHeader & strRows & "</htmltags>"
+    
+    rs.Close
+    Set rs = Nothing
+End Function
+Public Function BuildHTMLTableNoHead(ByVal strData As String, strClass As String) As String
+    Dim strHeader, strRows As String
+    
+    Dim rs As DAO.Recordset
+    Dim fldColumn As DAO.Field
+    Set rs = CurrentDb.OpenRecordset(strData)
+    strHeader = "<table " & CSS(strClass, "table") & ">"
+    strRows = ""
+    
+    'Build th -or- Header
+    If rs.RecordCount <> 0 Then
+        rs.MoveLast
+        rs.MoveFirst
+        Do While Not rs.EOF
+            strRows = strRows + "<tr " & CSS(strClass, "tr") & ">"
+            For Each fldColumn In rs.Fields
+                strRows = strRows + "<td>" & fldColumn.Value & "</td>"
+            Next
+            strRows = strRows + "</tr>"
+            rs.MoveNext
+        Loop
+        strRows = strRows + "</table>"
+    Else
+        strHeader = ""
+        strRows = ""
+    End If
+    
+    BuildHTMLTableNoHead = strHeader & strRows
+    
+    rs.Close
+    Set rs = Nothing
+End Function
+
+Public Function CSS(strClass As String, strElement As String) As String
+    Select Case strClass
+        Case "Red"
+            Select Case strElement
+                Case "table"
+                    CSS = "border = '1' style='border-collapse:collapse;padding:5px;'"
+                Case "th"
+                    CSS = "style='background-color:rgb(204,0,1);color:rgb(255,255,255);'"
+                Case "trEven"
+                    CSS = "style='background-color:rgb(242,220,219);'"
+                Case "trOdd"
+                    CSS = "style='background-color:rgb(255,255,255);'"
+                Case "h1"
+                    CSS = "style='color:rgb(204,0,1);text-align:center;'"
+                Case "h2"
+                    CSS = "style='color:rgb(204,0,1);text-align:left;font-style:italic;'"
+            End Select
+        Case "Green"
+            Select Case strElement
+                Case "table"
+                    CSS = "border = '1' style='border-collapse:collapse;padding:5px;'"
+                Case "th"
+                    CSS = "style='background-color:rgb(155,187,89);color:rgb(255,255,255);'"
+                Case "trEven"
+                    CSS = "style='background-color:rgb(235,241,222);'"
+                Case "trOdd"
+                    CSS = "style='background-color:rgb(255,255,255);'"
+                Case "h1"
+                    CSS = "style='text-align:center;color:green;'"
+                Case "h2"
+                    CSS = "style='text-align:left;color:green;font-style:italic;'"
+            End Select
+        Case "Black"
+            Select Case strElement
+                Case "table"
+                    CSS = "border = '1' style='border-collapse:collapse;padding:5px;'"
+                Case "th"
+                    CSS = "style='background-color:rgb(0,0,0);color:rgb(255,255,255);'"
+                Case "trEven"
+                    CSS = "style='background-color:rgb(217,217,217);'"
+                Case "trOdd"
+                    CSS = "style='background-color:rgb(255,255,255);'"
+                Case "h1"
+                    CSS = "style='text-align:center;color:black;'"
+                Case "h2"
+                    CSS = "style='text-align:left;color:black;font-style:italic;'"
+            End Select
+        Case "Blue"
+            Select Case strElement
+                Case "table"
+                    CSS = "border = '1' style='border-collapse:collapse;padding:5px;'"
+                Case "th"
+                    CSS = "style='background-color:rgb(79,129,189);color:rgb(255,255,255);'"
+                Case "trEven"
+                    CSS = "style='background-color:rgb(220,230,241);'"
+                Case "trOdd"
+                    CSS = "style='background-color:rgb(255,255,255);'"
+                Case "h1"
+                    CSS = "style='text-align:center;color:blue;'"
+                Case "h2"
+                    CSS = "style='text-align:left;color:blue;font-style:italic;'"
+            End Select
+        Case "Yellow"
+            Select Case strElement
+                Case "table"
+                    CSS = "border = '1' style='border-collapse:collapse;padding:5px;'"
+                Case "th"
+                    CSS = "style='background-color:rgb(255,255,0);color:rgb(0,0,0);'"
+                Case "trEven"
+                    CSS = "style='background-color:rgb(255,255,143);'"
+                Case "trOdd"
+                    CSS = "style='background-color:rgb(255,255,255);'"
+                Case "h1"
+                    CSS = "style='color:rgb(0,0,0);background-color:rgb(255,255,0);text-align:center;'"
+                Case "h2"
+                    CSS = "style='color:rgb(0,0,0);background-color:rgb(255,255,0);text-align:left;font-style:italic;'"
+            End Select
+    End Select
+End Function
